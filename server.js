@@ -4,6 +4,8 @@ const cors = require("cors");
 const connectDB = require("./config/db");
 const leadRoutes = require("./routes/LeadRoutes/LeadsRoutes");
 const authRoutes = require("./routes/auth/authRoutes");
+const productRoutes = require("./routes/products/productroutes");
+const collectionRoutes = require("./routes/collections/collectionRoutes");
 config("dotenv");
 
 // Connect to MongoDB
@@ -23,6 +25,8 @@ app.get("/", (req, res) => {
 
 app.use("/api/leads", leadRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/collections", collectionRoutes);
 
 // ─── 404 Handler ──────────────────────────────
 app.use((req, res) => {
