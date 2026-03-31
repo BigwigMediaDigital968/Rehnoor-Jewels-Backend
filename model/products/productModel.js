@@ -263,7 +263,7 @@ const productSchema = new mongoose.Schema(
 );
 
 // ─── Indexes ──────────────────────────────────────────────────────
-productSchema.index({ slug: 1 });
+// productSchema.index({ slug: 1 });
 productSchema.index({ collection: 1, isActive: 1, sortOrder: 1 });
 productSchema.index({ tag: 1, isActive: 1 });
 productSchema.index({ category: 1, isActive: 1 });

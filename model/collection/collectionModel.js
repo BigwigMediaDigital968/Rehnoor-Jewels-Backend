@@ -103,13 +103,13 @@ const collectionSchema = new mongoose.Schema(
 );
 
 // ─── Indexes ──────────────────────────────────────────────────────
-collectionSchema.index({ slug: 1 });
+// collectionSchema.index({ slug: 1 });
 collectionSchema.index({ isActive: 1, sortOrder: 1 });
 
 // ─── Auto-update productCount on save ─────────────────────────────
 collectionSchema.pre("save", function (next) {
   this.productCount = this.products.length;
-  next();
+  // next();
 });
 
 module.exports = mongoose.model("Collection", collectionSchema);

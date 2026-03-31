@@ -3,6 +3,32 @@ const Product = require("../../model/products/productModel");
 
 const isMongoId = (str) => /^[a-f\d]{24}$/i.test(str);
 
+const safeParseArray = (value) => {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    // Handle ['["a","b"]']
+    if (value.length === 1 && typeof value[0] === "string") {
+      try {
+        return JSON.parse(value[0]);
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value.split(",").map((v) => v.trim());
+    }
+  }
+
+  return [];
+};
+
 // ─── PUBLIC ───────────────────────────────────────────────────────────────────
 
 // GET /api/collections — all active collections (public)
@@ -39,6 +65,9 @@ const getPublicCollectionByIdOrSlug = async (req, res) => {
         "name slug subtitle images price originalPrice tag rating reviewCount sizes category purity",
       options: { sort: { sortOrder: 1 } },
     });
+
+    collection.breadcrumb = safeParseArray(collection.breadcrumb);
+    collection.seoKeywords = safeParseArray(collection.seoKeywords);
 
     if (!collection) {
       return res
@@ -122,16 +151,25 @@ const adminGetCollectionByIdOrSlug = async (req, res) => {
 // POST /api/admin/collections — create collection
 const createCollection = async (req, res) => {
   try {
-    // If products provided, validate they exist
-    const { products = [], ...rest } = req.body;
+    let { products = [], breadcrumb, seoKeywords, ...rest } = req.body;
+
+    breadcrumb = safeParseArray(breadcrumb);
+    seoKeywords = safeParseArray(seoKeywords);
+    products = safeParseArray(products);
+
+    // ── If a hero image was uploaded, use its Cloudinary URL ──────
+    if (req.file) {
+      rest.heroImage = req.file.path; // Cloudinary secure URL
+    }
 
     const collection = await Collection.create({
       ...rest,
+      breadcrumb,
+      seoKeywords,
       products,
       productCount: products.length,
     });
 
-    // Back-reference: update each product's collection field
     if (products.length > 0) {
       await Product.updateMany(
         { _id: { $in: products } },
@@ -145,6 +183,12 @@ const createCollection = async (req, res) => {
       data: collection,
     });
   } catch (error) {
+    // Clean up the uploaded Cloudinary asset if Mongo rejects the document
+    if (req.file) {
+      const { cloudinary } = require("../../config/cloudinary");
+      await cloudinary.uploader.destroy(req.file.filename).catch(() => {});
+    }
+
     if (error.name === "ValidationError") {
       const errors = Object.values(error.errors).map((e) => e.message);
       return res
@@ -162,6 +206,69 @@ const createCollection = async (req, res) => {
 };
 
 // PUT /api/admin/collections/:id — full update
+// const updateCollection = async (req, res) => {
+//   try {
+//     const existing = await Collection.findById(req.params.id);
+//     if (!existing) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Collection not found." });
+//     }
+
+//     const { products, ...rest } = req.body;
+
+//     // Handle products array change
+//     if (products !== undefined) {
+//       const oldIds = existing.products.map((id) => id.toString());
+//       const newIds = products.map((id) => id.toString());
+
+//       const added = newIds.filter((id) => !oldIds.includes(id));
+//       const removed = oldIds.filter((id) => !newIds.includes(id));
+
+//       // Update back-references on Product
+//       if (added.length > 0) {
+//         await Product.updateMany(
+//           { _id: { $in: added } },
+//           { $set: { collection: existing._id } },
+//         );
+//       }
+//       if (removed.length > 0) {
+//         await Product.updateMany(
+//           { _id: { $in: removed } },
+//           { $set: { collection: null } },
+//         );
+//       }
+
+//       rest.products = products;
+//       rest.productCount = products.length;
+//     }
+
+//     const collection = await Collection.findByIdAndUpdate(req.params.id, rest, {
+//       new: true,
+//       runValidators: true,
+//     }).populate("products", "name slug price isActive tag");
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Collection updated successfully.",
+//       data: collection,
+//     });
+//   } catch (error) {
+//     if (error.name === "ValidationError") {
+//       const errors = Object.values(error.errors).map((e) => e.message);
+//       return res
+//         .status(400)
+//         .json({ success: false, message: errors[0], errors });
+//     }
+//     if (error.code === 11000) {
+//       return res
+//         .status(409)
+//         .json({ success: false, message: "Slug already exists." });
+//     }
+//     console.error("updateCollection error:", error);
+//     return res.status(500).json({ success: false, message: "Server error." });
+//   }
+// };
 const updateCollection = async (req, res) => {
   try {
     const existing = await Collection.findById(req.params.id);
@@ -171,23 +278,71 @@ const updateCollection = async (req, res) => {
         .json({ success: false, message: "Collection not found." });
     }
 
-    const { products, ...rest } = req.body;
+    let { products, breadcrumb, seoKeywords, ...rest } = req.body;
 
-    // Handle products array change
+    breadcrumb = safeParseArray(breadcrumb);
+    seoKeywords = safeParseArray(seoKeywords);
+
+    // ── Inject new hero image URL if a file was uploaded ──────────
+    if (req.file) {
+      rest.heroImage = req.file.path;
+
+      // Optionally delete the OLD hero from Cloudinary to save storage
+      if (existing.heroImage) {
+        try {
+          const { cloudinary } = require("../../config/cloudinary");
+          const url = new URL(existing.heroImage);
+          const parts = url.pathname.split("/");
+          const uploadIdx = parts.indexOf("upload");
+          const startIdx =
+            uploadIdx + 1 < parts.length && /^v\d+$/.test(parts[uploadIdx + 1])
+              ? uploadIdx + 2
+              : uploadIdx + 1;
+          const publicId = parts
+            .slice(startIdx)
+            .join("/")
+            .replace(/\.[^/.]+$/, "");
+          await cloudinary.uploader.destroy(publicId);
+        } catch {
+          // Non-fatal — old image cleanup failing shouldn't block the update
+        }
+      }
+    }
+
+    // ── Handle products array change (existing logic preserved) ───
     if (products !== undefined) {
+      let parsedProducts = products;
+
+      // ✅ Convert string → array safely
+      if (typeof products === "string") {
+        try {
+          parsedProducts = JSON.parse(products); // for JSON string
+        } catch {
+          // fallback: comma-separated string
+          parsedProducts = products.split(",");
+        }
+      }
+
+      // ✅ Ensure it's always an array
+      if (!Array.isArray(parsedProducts)) {
+        parsedProducts = [parsedProducts];
+      }
+
+      // ✅ Clean IDs
+      const newIds = parsedProducts.map((id) => id.toString().trim());
+
       const oldIds = existing.products.map((id) => id.toString());
-      const newIds = products.map((id) => id.toString());
 
       const added = newIds.filter((id) => !oldIds.includes(id));
       const removed = oldIds.filter((id) => !newIds.includes(id));
 
-      // Update back-references on Product
       if (added.length > 0) {
         await Product.updateMany(
           { _id: { $in: added } },
           { $set: { collection: existing._id } },
         );
       }
+
       if (removed.length > 0) {
         await Product.updateMany(
           { _id: { $in: removed } },
@@ -195,9 +350,12 @@ const updateCollection = async (req, res) => {
         );
       }
 
-      rest.products = products;
-      rest.productCount = products.length;
+      rest.products = newIds;
+      rest.productCount = newIds.length;
     }
+
+    if (breadcrumb) rest.breadcrumb = breadcrumb;
+    if (seoKeywords) rest.seoKeywords = seoKeywords;
 
     const collection = await Collection.findByIdAndUpdate(req.params.id, rest, {
       new: true,

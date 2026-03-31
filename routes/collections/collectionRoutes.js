@@ -12,6 +12,9 @@ const {
   deleteCollection,
 } = require("../../controller/collections/collectionController");
 const { protect, adminOnly } = require("../../middleware/Authmiddleware");
+const {
+  handleCollectionImageUpload,
+} = require("../../middleware/uploadMiddleware");
 
 // ─────────────────────────────────
 // PUBLIC — no token needed
@@ -38,11 +41,23 @@ router.get(
   adminGetCollectionByIdOrSlug,
 );
 
-// POST /api/admin/collections
-router.post("/admin", protect, adminOnly, createCollection);
+// POST /api/collections/admin/create
+router.post(
+  "/admin/create",
+  protect,
+  adminOnly,
+  handleCollectionImageUpload, // ← added
+  createCollection,
+);
 
-// PUT  /api/admin/collections/:id
-router.put("/admin/:id", protect, adminOnly, updateCollection);
+// PUT /api/collections/admin/:id
+router.put(
+  "/admin/:id",
+  protect,
+  adminOnly,
+  handleCollectionImageUpload, // ← added
+  updateCollection,
+);
 
 // PATCH /api/admin/collections/:id/toggle
 router.patch("/admin/:id/toggle", protect, adminOnly, toggleCollectionStatus);

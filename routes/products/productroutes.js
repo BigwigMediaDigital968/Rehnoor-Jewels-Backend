@@ -13,6 +13,8 @@ const {
 } = require("../../controller/Products/productcontroller");
 const { protect, adminOnly } = require("../../middleware/Authmiddleware");
 
+const { handleImageUpload } = require("../../middleware/uploadMiddleware");
+
 // ─────────────────────────────────
 // PUBLIC — no token needed
 // ─────────────────────────────────
@@ -34,12 +36,20 @@ router.get("/admin/all", protect, adminOnly, adminGetAllProducts);
 router.get("/admin/:idOrSlug", protect, adminOnly, adminGetProductByIdOrSlug);
 
 // POST /api/admin/products
-router.post("/admin", protect, adminOnly, createProduct);
+// router.post("/admin/create", protect, adminOnly, createProduct);
+router.post(
+  "/admin/create",
+  protect,
+  adminOnly,
+  handleImageUpload,
+  createProduct,
+);
 
 // PUT  /api/admin/products/:id (full update)
-router.put("/admin/:id", protect, adminOnly, updateProduct);
+// router.put("/admin/:id", protect, adminOnly, updateProduct);
+router.put("/admin/:id", protect, adminOnly, handleImageUpload, updateProduct);
 
-// PATCH /api/admin/products/:id/toggle (activate/deactivate)
+// PATCH /api/admin/products/:id/toggle (activate/deactivate status of any product)
 router.patch("/admin/:id/toggle", protect, adminOnly, toggleProductStatus);
 
 // DELETE /api/admin/products/bulk
