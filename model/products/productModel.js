@@ -27,25 +27,6 @@ const SpecificationSchema = new mongoose.Schema(
   { _id: false },
 );
 
-const CareGuideItemSchema = new mongoose.Schema(
-  {
-    icon: { type: String, default: "✦" },
-    title: { type: String, required: true },
-    desc: { type: String, required: true },
-  },
-  { _id: false },
-);
-
-const ShippingOptionSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true }, // "Standard Delivery"
-    time: { type: String, required: true }, // "5–7 business days"
-    price: { type: String, required: true }, // "Free" or "₹149"
-    note: { type: String, default: "" },
-  },
-  { _id: false },
-);
-
 // ─── Main Product Schema ───────────────────────────────────────────────────────
 
 const productSchema = new mongoose.Schema(
@@ -193,45 +174,6 @@ const productSchema = new mongoose.Schema(
     specifications: {
       type: [SpecificationSchema],
       default: [],
-    },
-
-    // Care guide tab
-    careGuide: {
-      type: [CareGuideItemSchema],
-      default: [],
-    },
-
-    // Shipping tab
-    shippingOptions: {
-      type: [ShippingOptionSchema],
-      default: [],
-    },
-    shippingNote: {
-      type: String,
-      default:
-        "All shipments are fully insured and arrive in our signature velvet-lined gift box.",
-    },
-
-    // Returns tab — steps are stored globally (or per product if needed)
-    returnWindowDays: {
-      type: Number,
-      default: 30,
-    },
-    returnNote: {
-      type: String,
-      default: "",
-    },
-
-    // ─── Ratings (aggregated — updated via review API) ─────────────
-    rating: {
-      type: Number,
-      default: 0,
-      min: 0,
-      max: 5,
-    },
-    reviewCount: {
-      type: Number,
-      default: 0,
     },
 
     // ─── SEO ───────────────────────────────────────────────────────
