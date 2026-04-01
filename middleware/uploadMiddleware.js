@@ -36,4 +36,24 @@ const handleCollectionImageUpload = (req, res, next) => {
   });
 };
 
-module.exports = { handleImageUpload, handleCollectionImageUpload };
+// Review Images
+const uploadReviewImages = upload.array("images", 5);
+
+const handleReviewImageUpload = (req, res, next) => {
+  uploadReviewImages(req, res, (err) => {
+    if (err) {
+      console.error("REVIEW UPLOAD ERROR:", err);
+      return res.status(400).json({
+        success: false,
+        message: err.message || "Image upload failed",
+      });
+    }
+    next();
+  });
+};
+
+module.exports = {
+  handleImageUpload,
+  handleCollectionImageUpload,
+  handleReviewImageUpload,
+};
