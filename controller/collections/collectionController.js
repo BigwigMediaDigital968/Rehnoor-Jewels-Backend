@@ -66,7 +66,6 @@ const getPublicCollectionByIdOrSlug = async (req, res) => {
       options: { sort: { sortOrder: 1 } },
     });
 
-    collection.breadcrumb = safeParseArray(collection.breadcrumb);
     collection.seoKeywords = safeParseArray(collection.seoKeywords);
 
     if (!collection) {
@@ -151,9 +150,8 @@ const adminGetCollectionByIdOrSlug = async (req, res) => {
 // POST /api/admin/collections — create collection
 const createCollection = async (req, res) => {
   try {
-    let { products = [], breadcrumb, seoKeywords, ...rest } = req.body;
+    let { products = [], seoKeywords, ...rest } = req.body;
 
-    breadcrumb = safeParseArray(breadcrumb);
     seoKeywords = safeParseArray(seoKeywords);
     products = safeParseArray(products);
 
@@ -164,7 +162,6 @@ const createCollection = async (req, res) => {
 
     const collection = await Collection.create({
       ...rest,
-      breadcrumb,
       seoKeywords,
       products,
       productCount: products.length,
@@ -206,69 +203,6 @@ const createCollection = async (req, res) => {
 };
 
 // PUT /api/admin/collections/:id — full update
-// const updateCollection = async (req, res) => {
-//   try {
-//     const existing = await Collection.findById(req.params.id);
-//     if (!existing) {
-//       return res
-//         .status(404)
-//         .json({ success: false, message: "Collection not found." });
-//     }
-
-//     const { products, ...rest } = req.body;
-
-//     // Handle products array change
-//     if (products !== undefined) {
-//       const oldIds = existing.products.map((id) => id.toString());
-//       const newIds = products.map((id) => id.toString());
-
-//       const added = newIds.filter((id) => !oldIds.includes(id));
-//       const removed = oldIds.filter((id) => !newIds.includes(id));
-
-//       // Update back-references on Product
-//       if (added.length > 0) {
-//         await Product.updateMany(
-//           { _id: { $in: added } },
-//           { $set: { collection: existing._id } },
-//         );
-//       }
-//       if (removed.length > 0) {
-//         await Product.updateMany(
-//           { _id: { $in: removed } },
-//           { $set: { collection: null } },
-//         );
-//       }
-
-//       rest.products = products;
-//       rest.productCount = products.length;
-//     }
-
-//     const collection = await Collection.findByIdAndUpdate(req.params.id, rest, {
-//       new: true,
-//       runValidators: true,
-//     }).populate("products", "name slug price isActive tag");
-
-//     return res.status(200).json({
-//       success: true,
-//       message: "Collection updated successfully.",
-//       data: collection,
-//     });
-//   } catch (error) {
-//     if (error.name === "ValidationError") {
-//       const errors = Object.values(error.errors).map((e) => e.message);
-//       return res
-//         .status(400)
-//         .json({ success: false, message: errors[0], errors });
-//     }
-//     if (error.code === 11000) {
-//       return res
-//         .status(409)
-//         .json({ success: false, message: "Slug already exists." });
-//     }
-//     console.error("updateCollection error:", error);
-//     return res.status(500).json({ success: false, message: "Server error." });
-//   }
-// };
 const updateCollection = async (req, res) => {
   try {
     const existing = await Collection.findById(req.params.id);
@@ -278,9 +212,8 @@ const updateCollection = async (req, res) => {
         .json({ success: false, message: "Collection not found." });
     }
 
-    let { products, breadcrumb, seoKeywords, ...rest } = req.body;
+    let { products, seoKeywords, ...rest } = req.body;
 
-    breadcrumb = safeParseArray(breadcrumb);
     seoKeywords = safeParseArray(seoKeywords);
 
     // ── Inject new hero image URL if a file was uploaded ──────────
@@ -354,7 +287,6 @@ const updateCollection = async (req, res) => {
       rest.productCount = newIds.length;
     }
 
-    if (breadcrumb) rest.breadcrumb = breadcrumb;
     if (seoKeywords) rest.seoKeywords = seoKeywords;
 
     const collection = await Collection.findByIdAndUpdate(req.params.id, rest, {

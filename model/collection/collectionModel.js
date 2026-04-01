@@ -59,14 +59,6 @@ const collectionSchema = new mongoose.Schema(
       ],
       default: "",
     },
-    purity: {
-      type: String,
-      default: "22kt",
-    },
-    breadcrumb: {
-      type: [String], // e.g. ["Home", "Collections", "Chains"]
-      default: [],
-    },
 
     // ─── Stats (computed on fetch, or stored for perf) ────────────
     productCount: {
@@ -109,7 +101,7 @@ collectionSchema.index({ isActive: 1, sortOrder: 1 });
 // ─── Auto-update productCount on save ─────────────────────────────
 collectionSchema.pre("save", function (next) {
   this.productCount = this.products.length;
-  // next();
+  next();
 });
 
 module.exports = mongoose.model("Collection", collectionSchema);
