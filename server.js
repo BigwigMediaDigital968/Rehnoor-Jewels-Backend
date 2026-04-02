@@ -7,6 +7,7 @@ const authRoutes = require("./routes/auth/authRoutes");
 const productRoutes = require("./routes/products/productroutes");
 const collectionRoutes = require("./routes/collections/collectionRoutes");
 const reviewRoutes = require("./routes/reviews/reviewRoutes");
+const orderRoutes = require("./routes/order/orderRoutes");
 config("dotenv");
 
 // Connect to MongoDB
@@ -29,6 +30,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/collections", collectionRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/orders", orderRoutes);
 
 // ─── 404 Handler ──────────────────────────────
 app.use((req, res) => {
