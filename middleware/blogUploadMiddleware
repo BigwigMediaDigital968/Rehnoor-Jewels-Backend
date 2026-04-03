@@ -1,0 +1,37 @@
+const { blogUpload } = require("../config/cloudinary");
+
+// ── Cover image — single file under "coverImage" field ───────────────────────
+const uploadBlogCover = blogUpload.single("coverImage");
+
+const handleBlogCoverUpload = (req, res, next) => {
+  uploadBlogCover(req, res, (err) => {
+    if (err) {
+      console.error("BLOG COVER UPLOAD ERROR:", err);
+      return res.status(400).json({
+        success: false,
+        message: err.message || "Cover image upload failed",
+      });
+    }
+    next();
+  });
+};
+
+// ── Inline content image — single file from Tiptap editor ────────────────────
+// The Tiptap editor calls POST /api/blogs/upload-image for each image dropped
+// into the content area. The response URL is inserted into the HTML.
+const uploadBlogContentImage = blogUpload.single("image");
+
+const handleBlogContentImageUpload = (req, res, next) => {
+  uploadBlogContentImage(req, res, (err) => {
+    if (err) {
+      console.error("BLOG CONTENT IMAGE UPLOAD ERROR:", err);
+      return res.status(400).json({
+        success: false,
+        message: err.message || "Image upload failed",
+      });
+    }
+    next();
+  });
+};
+
+module.exports = { handleBlogCoverUpload, handleBlogContentImageUpload };

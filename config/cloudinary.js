@@ -45,8 +45,6 @@ const upload = multer({
   },
 });
 
-// module.exports = { cloudinary, upload };
-
 const collectionStorage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
@@ -70,4 +68,31 @@ const uploadCollection = multer({
   },
 });
 
-module.exports = { cloudinary, upload, uploadCollection };
+// Blogs
+const blogStorage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: "rehnoor/blogs",
+    allowed_formats: ["jpg", "jpeg", "png", "webp", "gif"],
+    transformation: [{ width: 1400, quality: "auto:best" }], // preserve aspect ratio
+    public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+  }),
+});
+
+const blogUpload = multer({
+  storage: blogStorage,
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB — larger for blog images
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/jpg",
+      "image/gif",
+    ];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error(`Invalid file type: ${file.mimetype}`), false);
+  },
+});
+
+module.exports = { cloudinary, upload, uploadCollection, blogUpload };
