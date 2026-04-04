@@ -13,7 +13,7 @@ const FaqSchema = new mongoose.Schema(
 // ─── Author sub-schema ────────────────────────────────────────────────────────
 const AuthorSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true, default: "Team Rehnoor" },
     bio: { type: String, default: "", trim: true },
     avatar: { type: String, default: "" }, // Cloudinary URL
     email: { type: String, default: "", trim: true, lowercase: true },
@@ -227,7 +227,7 @@ blogSchema.pre("save", function (next) {
     this.publishedAt = new Date();
   }
 
-  next();
+  // next();
 });
 
 module.exports = mongoose.model("Blog", blogSchema);
