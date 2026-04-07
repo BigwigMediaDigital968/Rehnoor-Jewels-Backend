@@ -98,6 +98,7 @@ const productSchema = new mongoose.Schema(
         "Limited",
         "Exclusive",
         "Trending",
+        "Sale",
         "",
       ],
       default: "",

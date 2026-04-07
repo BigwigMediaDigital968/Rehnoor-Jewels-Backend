@@ -78,7 +78,25 @@ const getPublicProducts = async (req, res) => {
     } = req.query;
 
     const filter = { isActive: true };
-    if (collection) filter.collection = collection;
+    // if (collection) filter.collection = collection;
+    if (collection) {
+      const colDoc = await Collection.findOne({ slug: collection });
+
+      if (!colDoc) {
+        return res.status(200).json({
+          success: true,
+          data: [],
+          pagination: {
+            total: 0,
+            page: Number(page),
+            limit: Number(limit),
+            totalPages: 0,
+          },
+        });
+      }
+
+      filter.collection = colDoc._id; // ✅ FIX
+    }
     if (category) filter.category = { $regex: category, $options: "i" };
     if (tag) filter.tag = tag;
     if (featured === "true") filter.isFeatured = true;

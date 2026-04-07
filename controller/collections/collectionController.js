@@ -54,6 +54,7 @@ const getPublicCollections = async (req, res) => {
 const getPublicCollectionByIdOrSlug = async (req, res) => {
   try {
     const { idOrSlug } = req.params;
+
     const filter = isMongoId(idOrSlug)
       ? { _id: idOrSlug, isActive: true }
       : { slug: idOrSlug, isActive: true };
@@ -66,18 +67,27 @@ const getPublicCollectionByIdOrSlug = async (req, res) => {
       options: { sort: { sortOrder: 1 } },
     });
 
-    collection.seoKeywords = safeParseArray(collection.seoKeywords);
-
+    // ✅ Handle null FIRST
     if (!collection) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Collection not found." });
+      return res.status(404).json({
+        success: false,
+        message: "Collection not found.",
+      });
     }
 
-    return res.status(200).json({ success: true, data: collection });
+    // ✅ Convert to plain object
+    const doc = collection.toObject();
+
+    // ✅ Safe parsing
+    doc.seoKeywords = safeParseArray(doc.seoKeywords);
+
+    return res.status(200).json({ success: true, data: doc });
   } catch (error) {
     console.error("getPublicCollectionByIdOrSlug error:", error);
-    return res.status(500).json({ success: false, message: "Server error." });
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+    });
   }
 };
 
