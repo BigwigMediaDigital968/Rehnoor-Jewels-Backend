@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const Counter = require("../Counter");
 
 // ─── Address sub-schema ───────────────────────────────────────────────────────
 const AddressSchema = new mongoose.Schema(
@@ -302,14 +303,37 @@ orderSchema.index({ "shipping.trackingNumber": 1 });
 //   this.orderNumber = `RJ-${year}-${padded}`;
 //   // next();
 // });
-orderSchema.pre("save", async function () {
-  if (this.orderNumber) return;
 
-  const year = new Date().getFullYear();
-  const count = (await this.constructor.countDocuments()) + 1;
-  const padded = String(count).padStart(5, "0");
+// orderSchema.pre("save", async function () {
+//   if (this.orderNumber) return;
 
-  this.orderNumber = `RJ-${year}-${padded}`;
+//   const year = new Date().getFullYear();
+//   const count = (await this.constructor.countDocuments()) + 1;
+//   const padded = String(count).padStart(5, "0");
+
+//   this.orderNumber = `RJ-${year}-${padded}`;
+// });
+
+orderSchema.pre("save", async function (next) {
+  try {
+    if (this.orderNumber) return next();
+
+    const counter = await Counter.findByIdAndUpdate(
+      { _id: "order" },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true },
+    );
+
+    const year = new Date().getFullYear();
+    const padded = String(counter.seq).padStart(5, "0");
+
+    this.orderNumber = `RJ-${year}-${padded}`;
+
+    // next();
+  } catch (err) {
+    // next(err);
+    console.log(err);
+  }
 });
 
 // ─── Virtual: item count ──────────────────────────────────────────────────────

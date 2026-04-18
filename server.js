@@ -1,4 +1,5 @@
 const { config } = require("dotenv");
+config();
 const express = require("express");
 const cors = require("cors");
 const connectDB = require("./config/db");
@@ -11,12 +12,19 @@ const reviewRoutes = require("./routes/reviews/reviewRoutes");
 const orderRoutes = require("./routes/order/orderRoutes");
 const newsletterRoutes = require("./routes/news/newsRoutes");
 const blogRoutes = require("./routes/blog/blogRoutes");
-config("dotenv");
+
+const webhookRoutes = require("./routes/webhooks/webhook.routes"); // ← MUST be first
+const paymentRoutes = require("./routes/payment/payment.routes");
+const shippingRoutes = require("./routes/shipping/shipping.routes");
 
 // Connect to MongoDB
 connectDB();
 
 const app = express();
+
+// ─── Webhook routes — raw body, BEFORE express.json() ────────────────────────
+// Razorpay signature verification breaks if JSON middleware runs first
+app.use("/webhooks", webhookRoutes);
 
 // ─── Core Middleware ───────────────────────────
 app.use(cors({ origin: process.env.CLIENT_URL || "*" }));
@@ -37,6 +45,9 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/blogs", blogRoutes);
+
+app.use("/api/payments", paymentRoutes); // POST /api/payments/razorpay/verify
+app.use("/api/shipping", shippingRoutes); // admin shipment + public tracking
 
 // ─── 404 Handler ──────────────────────────────
 app.use((req, res) => {
