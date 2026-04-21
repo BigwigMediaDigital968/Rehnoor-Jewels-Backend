@@ -1,5 +1,6 @@
 const Order = require("../../model/Order/orderModel");
 const Product = require("../../model/products/productModel");
+const { createOrder } = require("../../services/order/orderService");
 
 // ─── Helper: push to statusHistory + set timestamp ────────────────────────────
 function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
@@ -46,6 +47,136 @@ function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
 
 // POST /api/orders
 // Customer places an order from the website
+// const placeOrder = async (req, res) => {
+//   try {
+//     const {
+//       customerName,
+//       customerEmail,
+//       customerPhone,
+//       items: rawItems,
+//       shippingAddress,
+//       billingAddress,
+//       billingSameAsShipping = true,
+//       paymentMethod = "cod",
+//       coupon,
+//       customerNote,
+//       giftMessage,
+//       isGift = false,
+//       source = "website",
+//     } = req.body;
+
+//     if (!rawItems?.length) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Order must contain at least one item.",
+//       });
+//     }
+
+//     // ── Build order items with product snapshots ───────────────────────────
+//     const orderItems = [];
+//     let subtotal = 0;
+
+//     for (const raw of rawItems) {
+//       const product = await Product.findOne({
+//         _id: raw.productId,
+//         isActive: true,
+//       }).select(
+//         "name slug sku images price originalPrice purity metal category",
+//       );
+//       if (!product) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Product not found: ${raw.productId}`,
+//         });
+//       }
+
+//       const quantity = Math.max(1, Number(raw.quantity) || 1);
+//       const unitPrice = product.price;
+//       const lineTotal = unitPrice * quantity;
+//       subtotal += lineTotal;
+
+//       orderItems.push({
+//         product: product._id,
+//         name: product.name,
+//         slug: product.slug,
+//         sku: product.sku || "",
+//         image: product.images?.[0]?.src || "",
+//         purity: product.purity || "",
+//         metal: product.metal || "",
+//         category: product.category || "",
+//         sizeSelected: raw.sizeSelected || "",
+//         unitPrice,
+//         originalPrice: product.originalPrice || null,
+//         quantity,
+//         lineTotal,
+//         customNote: raw.customNote || "",
+//       });
+//     }
+
+//     // ── Pricing ───────────────────────────────────────────────────────────
+//     const shippingCharge = subtotal >= 2000 ? 0 : 149; // free above ₹2000
+//     const discountAmount = 0; // coupon logic placeholder
+//     const taxAmount = 0; // GST placeholder
+//     const total = subtotal + shippingCharge - discountAmount + taxAmount;
+
+//     // ── Create order ──────────────────────────────────────────────────────
+//     const order = await Order.create({
+//       customerName,
+//       customerEmail,
+//       customerPhone,
+//       items: orderItems,
+//       shippingAddress,
+//       billingAddress: billingSameAsShipping ? shippingAddress : billingAddress,
+//       billingSameAsShipping,
+//       pricing: { subtotal, shippingCharge, discountAmount, taxAmount, total },
+//       coupon: coupon || null,
+//       payment: {
+//         method: paymentMethod,
+//         status: paymentMethod === "cod" ? "pending" : "initiated",
+//       },
+//       shipping: {
+//         charge: shippingCharge,
+//         isFree: shippingCharge === 0,
+//         method: "standard",
+//       },
+//       statusHistory: [
+//         {
+//           status: "pending",
+//           note: "Order placed by customer",
+//           changedBy: "customer",
+//         },
+//       ],
+//       customerNote: customerNote || "",
+//       giftMessage: giftMessage || "",
+//       isGift,
+//       source,
+//       ipAddress: req.ip || null,
+//       userAgent: req.headers["user-agent"] || "",
+//     });
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Order placed successfully.",
+//       data: {
+//         _id: order._id,
+//         orderNumber: order.orderNumber,
+//         status: order.status,
+//         total: order.pricing.total,
+//         paymentMethod: order.payment.method,
+//       },
+//     });
+//   } catch (error) {
+//     if (error.name === "ValidationError") {
+//       const errors = Object.values(error.errors).map((e) => e.message);
+//       return res
+//         .status(400)
+//         .json({ success: false, message: errors[0], errors });
+//     }
+//     console.error("placeOrder error:", error);
+//     return res.status(500).json({ success: false, message: "Server error." });
+//   }
+// };
+
 const placeOrder = async (req, res) => {
   try {
     const {
@@ -65,13 +196,15 @@ const placeOrder = async (req, res) => {
     } = req.body;
 
     if (!rawItems?.length) {
-      return res.status(400).json({
-        success: false,
-        message: "Order must contain at least one item.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Order must contain at least one item.",
+        });
     }
 
-    // ── Build order items with product snapshots ───────────────────────────
+    // ── Build order items with product snapshots ──────────────────────────
     const orderItems = [];
     let subtotal = 0;
 
@@ -82,11 +215,14 @@ const placeOrder = async (req, res) => {
       }).select(
         "name slug sku images price originalPrice purity metal category",
       );
+
       if (!product) {
-        return res.status(400).json({
-          success: false,
-          message: `Product not found: ${raw.productId}`,
-        });
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: `Product not found: ${raw.productId}`,
+          });
       }
 
       const quantity = Math.max(1, Number(raw.quantity) || 1);
@@ -113,44 +249,27 @@ const placeOrder = async (req, res) => {
     }
 
     // ── Pricing ───────────────────────────────────────────────────────────
-    const shippingCharge = subtotal >= 2000 ? 0 : 149; // free above ₹2000
-    const discountAmount = 0; // coupon logic placeholder
-    const taxAmount = 0; // GST placeholder
+    const shippingCharge = subtotal >= 2000 ? 0 : 149;
+    const discountAmount = 0;
+    const taxAmount = 0;
     const total = subtotal + shippingCharge - discountAmount + taxAmount;
 
-    // ── Create order ──────────────────────────────────────────────────────
-    const order = await Order.create({
+    // ── Delegate to orderService (handles Razorpay + COD) ─────────────────
+    const { order, razorpayOrderId } = await createOrder({
       customerName,
       customerEmail,
       customerPhone,
       items: orderItems,
       shippingAddress,
-      billingAddress: billingSameAsShipping ? shippingAddress : billingAddress,
+      billingAddress,
       billingSameAsShipping,
       pricing: { subtotal, shippingCharge, discountAmount, taxAmount, total },
       coupon: coupon || null,
-      payment: {
-        method: paymentMethod,
-        status: paymentMethod === "cod" ? "pending" : "initiated",
-      },
-      shipping: {
-        charge: shippingCharge,
-        isFree: shippingCharge === 0,
-        method: "standard",
-      },
-      statusHistory: [
-        {
-          status: "pending",
-          note: "Order placed by customer",
-          changedBy: "customer",
-        },
-      ],
+      payment: { method: paymentMethod },
       customerNote: customerNote || "",
       giftMessage: giftMessage || "",
       isGift,
       source,
-      ipAddress: req.ip || null,
-      userAgent: req.headers["user-agent"] || "",
     });
 
     return res.status(201).json({
@@ -162,6 +281,7 @@ const placeOrder = async (req, res) => {
         status: order.status,
         total: order.pricing.total,
         paymentMethod: order.payment.method,
+        razorpayOrderId: razorpayOrderId || null, // ← frontend hook uses this
       },
     });
   } catch (error) {

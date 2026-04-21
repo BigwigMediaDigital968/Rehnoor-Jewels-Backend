@@ -314,26 +314,18 @@ orderSchema.index({ "shipping.trackingNumber": 1 });
 //   this.orderNumber = `RJ-${year}-${padded}`;
 // });
 
-orderSchema.pre("save", async function (next) {
-  try {
-    if (this.orderNumber) return next();
+orderSchema.pre("save", async function () {
+  if (this.orderNumber) return;
 
-    const counter = await Counter.findByIdAndUpdate(
-      { _id: "order" },
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true },
-    );
+  const counter = await Counter.findByIdAndUpdate(
+    { _id: "order" },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true },
+  );
 
-    const year = new Date().getFullYear();
-    const padded = String(counter.seq).padStart(5, "0");
-
-    this.orderNumber = `RJ-${year}-${padded}`;
-
-    // next();
-  } catch (err) {
-    // next(err);
-    console.log(err);
-  }
+  const year = new Date().getFullYear();
+  const padded = String(counter.seq).padStart(5, "0");
+  this.orderNumber = `RJ-${year}-${padded}`;
 });
 
 // ─── Virtual: item count ──────────────────────────────────────────────────────
