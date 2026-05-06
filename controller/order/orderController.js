@@ -1,6 +1,9 @@
 const Order = require("../../model/Order/orderModel");
 const Product = require("../../model/products/productModel");
 const { createOrder } = require("../../services/order/orderService");
+const {
+  applyCouponToOrder,
+} = require("../../controller/coupon/couponController"); // adjust path
 
 // ─── Helper: push to statusHistory + set timestamp ────────────────────────────
 function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
@@ -47,6 +50,7 @@ function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
 
 // POST /api/orders
 // Customer places an order from the website
+
 // const placeOrder = async (req, res) => {
 //   try {
 //     const {
@@ -72,7 +76,7 @@ function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
 //       });
 //     }
 
-//     // ── Build order items with product snapshots ───────────────────────────
+//     // ── Build order items with product snapshots ──────────────────────────
 //     const orderItems = [];
 //     let subtotal = 0;
 
@@ -83,6 +87,7 @@ function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
 //       }).select(
 //         "name slug sku images price originalPrice purity metal category",
 //       );
+
 //       if (!product) {
 //         return res.status(400).json({
 //           success: false,
@@ -114,44 +119,27 @@ function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
 //     }
 
 //     // ── Pricing ───────────────────────────────────────────────────────────
-//     const shippingCharge = subtotal >= 2000 ? 0 : 149; // free above ₹2000
-//     const discountAmount = 0; // coupon logic placeholder
-//     const taxAmount = 0; // GST placeholder
+//     const shippingCharge = subtotal >= 2000 ? 0 : 149;
+//     const discountAmount = 0;
+//     const taxAmount = 0;
 //     const total = subtotal + shippingCharge - discountAmount + taxAmount;
 
-//     // ── Create order ──────────────────────────────────────────────────────
-//     const order = await Order.create({
+//     // ── Delegate to orderService (handles Razorpay + COD) ─────────────────
+//     const { order, razorpayOrderId } = await createOrder({
 //       customerName,
 //       customerEmail,
 //       customerPhone,
 //       items: orderItems,
 //       shippingAddress,
-//       billingAddress: billingSameAsShipping ? shippingAddress : billingAddress,
+//       billingAddress,
 //       billingSameAsShipping,
 //       pricing: { subtotal, shippingCharge, discountAmount, taxAmount, total },
 //       coupon: coupon || null,
-//       payment: {
-//         method: paymentMethod,
-//         status: paymentMethod === "cod" ? "pending" : "initiated",
-//       },
-//       shipping: {
-//         charge: shippingCharge,
-//         isFree: shippingCharge === 0,
-//         method: "standard",
-//       },
-//       statusHistory: [
-//         {
-//           status: "pending",
-//           note: "Order placed by customer",
-//           changedBy: "customer",
-//         },
-//       ],
+//       payment: { method: paymentMethod },
 //       customerNote: customerNote || "",
 //       giftMessage: giftMessage || "",
 //       isGift,
 //       source,
-//       ipAddress: req.ip || null,
-//       userAgent: req.headers["user-agent"] || "",
 //     });
 
 //     return res.status(201).json({
@@ -163,6 +151,7 @@ function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
 //         status: order.status,
 //         total: order.pricing.total,
 //         paymentMethod: order.payment.method,
+//         razorpayOrderId: razorpayOrderId || null, // ← frontend hook uses this
 //       },
 //     });
 //   } catch (error) {
@@ -188,25 +177,25 @@ const placeOrder = async (req, res) => {
       billingAddress,
       billingSameAsShipping = true,
       paymentMethod = "cod",
-      coupon,
+      couponCode, // ← string code from frontend e.g. "DIWALI500"
       customerNote,
       giftMessage,
       isGift = false,
       source = "website",
     } = req.body;
 
+    // ── Basic validation ──────────────────────────────────────────────────
     if (!rawItems?.length) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Order must contain at least one item.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Order must contain at least one item.",
+      });
     }
 
     // ── Build order items with product snapshots ──────────────────────────
     const orderItems = [];
     let subtotal = 0;
+    let totalItemCount = 0;
 
     for (const raw of rawItems) {
       const product = await Product.findOne({
@@ -217,18 +206,17 @@ const placeOrder = async (req, res) => {
       );
 
       if (!product) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: `Product not found: ${raw.productId}`,
-          });
+        return res.status(400).json({
+          success: false,
+          message: `Product not found: ${raw.productId}`,
+        });
       }
 
       const quantity = Math.max(1, Number(raw.quantity) || 1);
       const unitPrice = product.price;
       const lineTotal = unitPrice * quantity;
       subtotal += lineTotal;
+      totalItemCount += quantity;
 
       orderItems.push({
         product: product._id,
@@ -248,11 +236,75 @@ const placeOrder = async (req, res) => {
       });
     }
 
-    // ── Pricing ───────────────────────────────────────────────────────────
-    const shippingCharge = subtotal >= 2000 ? 0 : 149;
-    const discountAmount = 0;
-    const taxAmount = 0;
-    const total = subtotal + shippingCharge - discountAmount + taxAmount;
+    // ── Coupon validation & discount calculation ───────────────────────────
+    // We validate FIRST (before creating the order) so we can reject early
+    // if the coupon is invalid — no order document is created on bad coupons.
+    let couponSnapshot = null; // what gets stored on the order
+    let discountAmount = 0;
+    let shippingCharge = subtotal >= 2000 ? 0 : 149;
+
+    if (couponCode?.trim()) {
+      // Dry-run validate (does not increment usageCount)
+      const Coupon = require("../../model/coupon/couponModal"); // adjust path
+      const couponDoc = await Coupon.findOne({
+        code: couponCode.trim().toUpperCase(),
+      });
+
+      if (!couponDoc) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid coupon code.",
+          field: "couponCode",
+        });
+      }
+
+      // Check if this is the customer's first order
+      const prevOrderCount = await Order.countDocuments({
+        customerEmail: customerEmail.toLowerCase(),
+        status: { $nin: ["cancelled", "failed"] },
+      });
+      const isFirstOrder = prevOrderCount === 0;
+
+      const validation = couponDoc.calculateDiscount({
+        subtotal,
+        itemCount: totalItemCount,
+        userEmail: customerEmail,
+        userId: req.user?._id || null,
+        isFirstOrder,
+      });
+
+      if (!validation.valid) {
+        return res.status(400).json({
+          success: false,
+          message: validation.message,
+          field: "couponCode",
+        });
+      }
+
+      // Free shipping coupon — waive the charge, no monetary discount
+      if (couponDoc.discountType === "free_shipping") {
+        shippingCharge = 0;
+        discountAmount = 0;
+      } else {
+        discountAmount = validation.discountAmount;
+      }
+
+      // Build the snapshot that will be stored on the order
+      couponSnapshot = {
+        couponId: couponDoc._id,
+        code: couponDoc.code,
+        discountType: couponDoc.discountType,
+        discountValue: couponDoc.discountValue,
+        discountAmount,
+      };
+    }
+
+    // ── Final pricing ─────────────────────────────────────────────────────
+    const taxAmount = 0; // add GST logic here if needed
+    const total = Math.max(
+      0,
+      subtotal + shippingCharge - discountAmount + taxAmount,
+    );
 
     // ── Delegate to orderService (handles Razorpay + COD) ─────────────────
     const { order, razorpayOrderId } = await createOrder({
@@ -264,14 +316,40 @@ const placeOrder = async (req, res) => {
       billingAddress,
       billingSameAsShipping,
       pricing: { subtotal, shippingCharge, discountAmount, taxAmount, total },
-      coupon: coupon || null,
+      coupon: couponSnapshot, // ← snapshot (null if no coupon)
       payment: { method: paymentMethod },
       customerNote: customerNote || "",
       giftMessage: giftMessage || "",
       isGift,
       source,
+      ipAddress: req.ip || null,
+      userAgent: req.headers["user-agent"] || "",
     });
 
+    // ── Commit coupon usage NOW (order exists, safe to increment) ─────────
+    // We do this AFTER the order is saved so usageLogs can store the order._id.
+    // If this fails, the order still exists — handle via admin if needed.
+    if (couponSnapshot?.code) {
+      try {
+        await applyCouponToOrder({
+          code: couponSnapshot.code,
+          subtotal,
+          itemCount: totalItemCount,
+          email: customerEmail,
+          userId: req.user?._id || null,
+          orderId: order._id,
+          orderTotal: total,
+        });
+      } catch (couponErr) {
+        // Non-fatal: order is placed. Log for admin review.
+        console.error(
+          `[Coupon] Failed to commit usage for order ${order.orderNumber}:`,
+          couponErr.message,
+        );
+      }
+    }
+
+    // ── Response ──────────────────────────────────────────────────────────
     return res.status(201).json({
       success: true,
       message: "Order placed successfully.",
@@ -279,9 +357,21 @@ const placeOrder = async (req, res) => {
         _id: order._id,
         orderNumber: order.orderNumber,
         status: order.status,
-        total: order.pricing.total,
+        pricing: {
+          subtotal: order.pricing.subtotal,
+          shippingCharge: order.pricing.shippingCharge,
+          discountAmount: order.pricing.discountAmount,
+          total: order.pricing.total,
+        },
+        coupon: couponSnapshot
+          ? {
+              code: couponSnapshot.code,
+              discountType: couponSnapshot.discountType,
+              discountAmount: couponSnapshot.discountAmount,
+            }
+          : null,
         paymentMethod: order.payment.method,
-        razorpayOrderId: razorpayOrderId || null, // ← frontend hook uses this
+        razorpayOrderId: razorpayOrderId || null,
       },
     });
   } catch (error) {

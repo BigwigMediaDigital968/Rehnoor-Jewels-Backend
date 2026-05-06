@@ -13,6 +13,10 @@ const reviewRoutes = require("./routes/reviews/reviewRoutes");
 const orderRoutes = require("./routes/order/orderRoutes");
 const newsletterRoutes = require("./routes/news/newsRoutes");
 const blogRoutes = require("./routes/blog/blogRoutes");
+const {
+  couponAdminRouter,
+  couponPublicRouter,
+} = require("./routes/coupon/couponRoutes");
 
 const webhookRoutes = require("./routes/webhooks/webhook.routes"); // ← MUST be first
 const paymentRoutes = require("./routes/payment/payment.routes");
@@ -28,7 +32,28 @@ const app = express();
 app.use("/webhooks", webhookRoutes);
 
 // ─── Core Middleware ───────────────────────────
-app.use(cors({ origin: process.env.CLIENT_URL || "*" }));
+const allowedOrigins = [
+  "http://localhost:3000", // admin panel
+  "http://localhost:3001", // website frontend ✅ NEW
+  "https://rehnoorjewels.com",
+  "https://www.rehnoorjewels.com",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // Postman / server calls
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+      }
+    },
+    credentials: true,
+  }),
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -46,6 +71,12 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/blogs", blogRoutes);
+
+// Admin panel routes (protected)
+app.use("/api/admin/coupons", couponAdminRouter);
+
+// Checkout / storefront routes (public)
+app.use("/api/coupons", couponPublicRouter);
 
 app.use("/api/payments", paymentRoutes); // POST /api/payments/razorpay/verify
 app.use("/api/shipping", shippingRoutes); // admin shipment + public tracking

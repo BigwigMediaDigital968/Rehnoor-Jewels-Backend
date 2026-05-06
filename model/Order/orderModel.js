@@ -136,12 +136,31 @@ const ShippingSchema = new mongoose.Schema(
 );
 
 // ─── Coupon / Discount sub-schema ─────────────────────────────────────────────
+// const CouponSchema = new mongoose.Schema(
+//   {
+//     code: { type: String, default: "" },
+//     discountType: { type: String, enum: ["flat", "percent", ""], default: "" },
+//     discountValue: { type: Number, default: 0 }, // flat ₹ or percent %
+//     discountAmount: { type: Number, default: 0 }, // actual ₹ saved
+//   },
+//   { _id: false },
+// );
+
 const CouponSchema = new mongoose.Schema(
   {
-    code: { type: String, default: "" },
-    discountType: { type: String, enum: ["flat", "percent", ""], default: "" },
-    discountValue: { type: Number, default: 0 }, // flat ₹ or percent %
-    discountAmount: { type: Number, default: 0 }, // actual ₹ saved
+    couponId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Coupon",
+      default: null,
+    }, // ← reference to live Coupon doc
+    code: { type: String, default: "" }, // e.g. "DIWALI500"
+    discountType: {
+      type: String,
+      enum: ["flat", "percent", "free_shipping", "buy_x_get_y", ""],
+      default: "",
+    },
+    discountValue: { type: Number, default: 0 }, // 500 or 15 (%)
+    discountAmount: { type: Number, default: 0 }, // actual ₹ saved on this order
   },
   { _id: false },
 );
@@ -294,25 +313,6 @@ orderSchema.index({ "payment.status": 1 });
 orderSchema.index({ "shipping.trackingNumber": 1 });
 
 // ─── Pre-save: generate orderNumber ───────────────────────────────────────────
-// orderSchema.pre("save", async function (next) {
-//   if (this.orderNumber) return next(); // already set
-
-//   const year = new Date().getFullYear();
-//   const count = (await this.constructor.countDocuments()) + 1;
-//   const padded = String(count).padStart(5, "0");
-//   this.orderNumber = `RJ-${year}-${padded}`;
-//   // next();
-// });
-
-// orderSchema.pre("save", async function () {
-//   if (this.orderNumber) return;
-
-//   const year = new Date().getFullYear();
-//   const count = (await this.constructor.countDocuments()) + 1;
-//   const padded = String(count).padStart(5, "0");
-
-//   this.orderNumber = `RJ-${year}-${padded}`;
-// });
 
 orderSchema.pre("save", async function () {
   if (this.orderNumber) return;
