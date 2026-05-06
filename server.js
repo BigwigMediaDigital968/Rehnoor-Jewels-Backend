@@ -37,6 +37,7 @@ const allowedOrigins = [
   "http://localhost:3001", // website frontend ✅ NEW
   "https://rehnoorjewels.com",
   "https://www.rehnoorjewels.com",
+  "https://rehnoor-jewels-admin-panel.vercel.app",
 ];
 
 app.use(
