@@ -187,13 +187,16 @@ const adminGetAllProducts = async (req, res) => {
     }
 
     const skip = (Number(page) - 1) * Number(limit);
-    const [products, total] = await Promise.all([
+    const [products, total, activeProducts] = await Promise.all([
       Product.find(filter)
         .populate("collection", "name slug")
         .sort(sort)
         .skip(skip)
         .limit(Number(limit)),
       Product.countDocuments(filter),
+      (isActive == undefined || isActive === "true")
+        ? Product.countDocuments({ ...filter, isActive: true })
+        : Promise.resolve(0),
     ]);
 
     return res.status(200).json({
@@ -204,6 +207,7 @@ const adminGetAllProducts = async (req, res) => {
         page: Number(page),
         limit: Number(limit),
         totalPages: Math.ceil(total / Number(limit)),
+        activeProducts: Number(activeProducts),
       },
     });
   } catch (error) {
