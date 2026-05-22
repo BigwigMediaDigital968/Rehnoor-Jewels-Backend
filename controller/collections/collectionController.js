@@ -63,7 +63,7 @@ const getPublicCollectionByIdOrSlug = async (req, res) => {
       path: "products",
       match: { isActive: true },
       select:
-        "name slug subtitle images price originalPrice tag rating reviewCount sizes category purity",
+        "name slug subtitle images price originalPrice tag rating reviewCount sizes category purity ourPromise",
       options: { sort: { sortOrder: 1 } },
     });
 
