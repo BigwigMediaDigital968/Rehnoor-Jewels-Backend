@@ -135,17 +135,6 @@ const ShippingSchema = new mongoose.Schema(
   { _id: false },
 );
 
-// ─── Coupon / Discount sub-schema ─────────────────────────────────────────────
-// const CouponSchema = new mongoose.Schema(
-//   {
-//     code: { type: String, default: "" },
-//     discountType: { type: String, enum: ["flat", "percent", ""], default: "" },
-//     discountValue: { type: Number, default: 0 }, // flat ₹ or percent %
-//     discountAmount: { type: Number, default: 0 }, // actual ₹ saved
-//   },
-//   { _id: false },
-// );
-
 const CouponSchema = new mongoose.Schema(
   {
     couponId: {

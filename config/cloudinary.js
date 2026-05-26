@@ -1,18 +1,146 @@
+// const cloudinary = require("cloudinary").v2;
+// const { CloudinaryStorage } = require("multer-storage-cloudinary");
+// const multer = require("multer");
+// const { config } = require("dotenv");
+// config("dotenv");
+
+// // ── Authenticate with Cloudinary ──────────────────────────────────
+// cloudinary.config({
+//   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+//   api_key: process.env.CLOUDINARY_API_KEY,
+//   api_secret: process.env.CLOUDINARY_API_SECRET,
+// });
+
+// // ── Storage — images go to the "rehnoor/products" folder ─────────
+// const storage = new CloudinaryStorage({
+//   cloudinary,
+//   params: async (req, file) => ({
+//     folder: "rehnoor/products",
+//     allowed_formats: ["jpg", "jpeg", "png", "webp"],
+//     transformation: [
+//       { width: 1200, height: 1200, crop: "limit", quality: "auto:best" },
+//     ],
+//     // Stable public_id so re-uploads replace instead of duplicate
+//     public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+//   }),
+// });
+
+// // ── Multer instance — max 8 images, 5 MB each ─────────────────────
+// const upload = multer({
+//   storage,
+//   limits: { fileSize: 5 * 1024 * 1024 },
+//   //   fileFilter: (req, file, cb) => {
+//   //     if (file.mimetype.startsWith("image/")) return cb(null, true);
+//   //     cb(new Error("Only image files are allowed"), false);
+//   //   },
+//   fileFilter: (req, file, cb) => {
+//     const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
+
+//     if (allowed.includes(file.mimetype)) {
+//       return cb(null, true);
+//     }
+
+//     console.log("Rejected file type:", file.mimetype); // debug
+//     cb(new Error(`Invalid file type: ${file.mimetype}`), false);
+//   },
+// });
+
+// const collectionStorage = new CloudinaryStorage({
+//   cloudinary,
+//   params: async (req, file) => ({
+//     folder: "rehnoor/collections",
+//     allowed_formats: ["jpg", "jpeg", "png", "webp"],
+//     transformation: [
+//       // Hero images are wide banners — 1600×900 is more appropriate than square
+//       { width: 1600, height: 900, crop: "limit", quality: "auto:best" },
+//     ],
+//     public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+//   }),
+// });
+
+// const uploadCollection = multer({
+//   storage: collectionStorage,
+//   limits: { fileSize: 5 * 1024 * 1024 },
+//   fileFilter: (req, file, cb) => {
+//     const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
+//     if (allowed.includes(file.mimetype)) return cb(null, true);
+//     cb(new Error(`Invalid file type: ${file.mimetype}`), false);
+//   },
+// });
+
+// // Blogs
+// const blogStorage = new CloudinaryStorage({
+//   cloudinary,
+//   params: async (req, file) => ({
+//     folder: "rehnoor/blogs",
+//     allowed_formats: ["jpg", "jpeg", "png", "webp", "gif"],
+//     transformation: [{ width: 1400, quality: "auto:best" }], // preserve aspect ratio
+//     public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+//   }),
+// });
+
+// const blogUpload = multer({
+//   storage: blogStorage,
+//   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB — larger for blog images
+//   fileFilter: (req, file, cb) => {
+//     const allowed = [
+//       "image/jpeg",
+//       "image/png",
+//       "image/webp",
+//       "image/jpg",
+//       "image/gif",
+//     ];
+//     if (allowed.includes(file.mimetype)) return cb(null, true);
+//     cb(new Error(`Invalid file type: ${file.mimetype}`), false);
+//   },
+// });
+
+// module.exports = { cloudinary, upload, uploadCollection, blogUpload };
+
 const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const multer = require("multer");
-const { config } = require("dotenv");
-config("dotenv");
+require("dotenv").config();
 
-// ── Authenticate with Cloudinary ──────────────────────────────────
+// ── Authenticate ───────────────────────────────────────────────────────────────
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ── Storage — images go to the "rehnoor/products" folder ─────────
-const storage = new CloudinaryStorage({
+// ── Shared helpers ─────────────────────────────────────────────────────────────
+
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+];
+const ALLOWED_BLOG_TYPES = [...ALLOWED_IMAGE_TYPES, "image/gif"];
+
+function makeFileFilter(allowed) {
+  return (req, file, cb) => {
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(
+      new Error(
+        `Invalid file type: ${file.mimetype}. Allowed: ${allowed.join(", ")}`,
+      ),
+      false,
+    );
+  };
+}
+
+function stablePublicId(originalname) {
+  const base = originalname
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `${Date.now()}-${base}`;
+}
+
+// ── Product storage ────────────────────────────────────────────────────────────
+
+const productStorage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
     folder: "rehnoor/products",
@@ -20,79 +148,82 @@ const storage = new CloudinaryStorage({
     transformation: [
       { width: 1200, height: 1200, crop: "limit", quality: "auto:best" },
     ],
-    // Stable public_id so re-uploads replace instead of duplicate
-    public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+    public_id: stablePublicId(file.originalname),
   }),
 });
 
-// ── Multer instance — max 8 images, 5 MB each ─────────────────────
+/**
+ * Multer upload for product routes.
+ *
+ * Accepted fields:
+ *   images           — main gallery (up to 10)
+ *   offerBanner      — single offer banner
+ *   sizeChart        — single size chart image
+ *   variantImages_N  — images for variants[N], where N = 0-based index (up to 20 variants)
+ *
+ * Max file size: 5 MB each.
+ */
+const MAX_VARIANTS = 20;
+
+const productFields = [
+  { name: "images", maxCount: 10 },
+  { name: "offerBanner", maxCount: 1 },
+  { name: "sizeChart", maxCount: 1 },
+  ...Array.from({ length: MAX_VARIANTS }, (_, i) => ({
+    name: `variantImages_${i}`,
+    maxCount: 5,
+  })),
+];
+
 const upload = multer({
-  storage,
+  storage: productStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
-  //   fileFilter: (req, file, cb) => {
-  //     if (file.mimetype.startsWith("image/")) return cb(null, true);
-  //     cb(new Error("Only image files are allowed"), false);
-  //   },
-  fileFilter: (req, file, cb) => {
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
-
-    if (allowed.includes(file.mimetype)) {
-      return cb(null, true);
-    }
-
-    console.log("Rejected file type:", file.mimetype); // debug
-    cb(new Error(`Invalid file type: ${file.mimetype}`), false);
-  },
+  fileFilter: makeFileFilter(ALLOWED_IMAGE_TYPES),
 });
+
+/** Use on product create/update routes: upload.productFields */
+upload.productFields = upload.fields(productFields);
+
+// ── Collection storage ─────────────────────────────────────────────────────────
 
 const collectionStorage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
     folder: "rehnoor/collections",
     allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    // Hero banners are wide — 16:9
     transformation: [
-      // Hero images are wide banners — 1600×900 is more appropriate than square
       { width: 1600, height: 900, crop: "limit", quality: "auto:best" },
     ],
-    public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+    public_id: stablePublicId(file.originalname),
   }),
 });
 
 const uploadCollection = multer({
   storage: collectionStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
-    if (allowed.includes(file.mimetype)) return cb(null, true);
-    cb(new Error(`Invalid file type: ${file.mimetype}`), false);
-  },
+  fileFilter: makeFileFilter(ALLOWED_IMAGE_TYPES),
 });
 
-// Blogs
+// ── Blog storage ───────────────────────────────────────────────────────────────
+
 const blogStorage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
     folder: "rehnoor/blogs",
     allowed_formats: ["jpg", "jpeg", "png", "webp", "gif"],
-    transformation: [{ width: 1400, quality: "auto:best" }], // preserve aspect ratio
-    public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+    // Preserve aspect ratio — width-only constraint
+    transformation: [{ width: 1400, quality: "auto:best" }],
+    public_id: stablePublicId(file.originalname),
   }),
 });
 
 const blogUpload = multer({
   storage: blogStorage,
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB — larger for blog images
-  fileFilter: (req, file, cb) => {
-    const allowed = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/jpg",
-      "image/gif",
-    ];
-    if (allowed.includes(file.mimetype)) return cb(null, true);
-    cb(new Error(`Invalid file type: ${file.mimetype}`), false);
-  },
+  limits: { fileSize: 8 * 1024 * 1024 }, // blogs may carry heavier hero images
+  fileFilter: makeFileFilter(ALLOWED_BLOG_TYPES),
 });
+
+// ── Exports ────────────────────────────────────────────────────────────────────
 
 module.exports = { cloudinary, upload, uploadCollection, blogUpload };
