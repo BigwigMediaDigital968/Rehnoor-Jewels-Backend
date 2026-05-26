@@ -606,23 +606,22 @@ productSchema.index({ category: 1, isActive: 1 });
 productSchema.index({ name: "text", shortDescription: "text" });
 
 // ─── Pre-save: enforce exactly one default variant ─────────────────────────────
-productSchema.pre("save", function (next) {
-  if (!this.variants || this.variants.length === 0) return next();
+productSchema.pre("save", async function () {
+  if (!this.variants || this.variants.length === 0) {
+    return;
+  }
 
   const defaults = this.variants.filter((v) => v.isDefault);
 
   if (defaults.length === 0) {
-    // Mark the first active variant as default
     const first = this.variants.find((v) => v.isActive) ?? this.variants[0];
+
     first.isDefault = true;
   } else if (defaults.length > 1) {
-    // Keep only the last one marked as default
     defaults.slice(0, -1).forEach((v) => {
       v.isDefault = false;
     });
   }
-
-  // next();
 });
 
 // ─── Virtuals ──────────────────────────────────────────────────────────────────
