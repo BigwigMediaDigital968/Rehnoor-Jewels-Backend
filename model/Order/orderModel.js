@@ -1,7 +1,338 @@
+// const mongoose = require("mongoose");
+// const Counter = require("../Counter");
+
+// // ─── Address sub-schema ───────────────────────────────────────────────────────
+// const AddressSchema = new mongoose.Schema(
+//   {
+//     fullName: { type: String, required: true, trim: true },
+//     phone: { type: String, required: true, trim: true },
+//     addressLine1: { type: String, required: true, trim: true },
+//     addressLine2: { type: String, default: "", trim: true },
+//     city: { type: String, required: true, trim: true },
+//     state: { type: String, required: true, trim: true },
+//     pincode: { type: String, required: true, trim: true },
+//     country: { type: String, default: "India", trim: true },
+//     landmark: { type: String, default: "", trim: true },
+//   },
+//   { _id: false },
+// );
+
+// // ─── Order item sub-schema (snapshot at time of order) ────────────────────────
+// // Critical: Never rely on live product data — prices & names change
+// const OrderItemSchema = new mongoose.Schema(
+//   {
+//     product: {
+//       type: mongoose.Schema.Types.ObjectId,
+//       ref: "Product",
+//       required: true,
+//     },
+//     // ── Snapshot fields — immutable record of what was ordered ──
+//     name: { type: String, required: true }, // product name at time of order
+//     slug: { type: String, default: "" },
+//     sku: { type: String, default: "" },
+//     image: { type: String, default: "" }, // primary image URL
+//     purity: { type: String, default: "" }, // "22kt"
+//     metal: { type: String, default: "" },
+//     category: { type: String, default: "" },
+
+//     // ── Variant selected ────────────────────────────────────────
+//     sizeSelected: { type: String, default: "" }, // '18"', 'M', etc.
+
+//     // ── Pricing snapshot ────────────────────────────────────────
+//     unitPrice: { type: Number, required: true }, // price at time of order
+//     originalPrice: { type: Number, default: null }, // for showing discount
+//     quantity: { type: Number, required: true, min: 1, default: 1 },
+//     lineTotal: { type: Number, required: true }, // unitPrice × quantity
+
+//     // ── Customisation (for engraving etc.) ─────────────────────
+//     customNote: { type: String, default: "" }, // e.g. "Engrave: RAVI"
+//   },
+//   { _id: true }, // keep _id so we can reference individual items in returns
+// );
+
+// // ─── Payment sub-schema ───────────────────────────────────────────────────────
+// // Gateway agnostic — supports Razorpay, Stripe, PayU, COD, etc.
+// const PaymentSchema = new mongoose.Schema(
+//   {
+//     method: {
+//       type: String,
+//       enum: [
+//         "cod",
+//         "razorpay",
+//         "stripe",
+//         "payu",
+//         "upi",
+//         "bank_transfer",
+//         "other",
+//       ],
+//       required: true,
+//     },
+//     status: {
+//       type: String,
+//       enum: [
+//         "pending",
+//         "initiated",
+//         "paid",
+//         "failed",
+//         "refunded",
+//         "partially_refunded",
+//       ],
+//       default: "pending",
+//     },
+
+//     // ── Gateway-specific IDs (populated after payment) ─────────
+//     gatewayOrderId: { type: String, default: "" }, // e.g. Razorpay order_id
+//     gatewayPaymentId: { type: String, default: "" }, // e.g. Razorpay payment_id
+//     gatewaySignature: { type: String, default: "" }, // for verification
+//     gatewayResponse: { type: mongoose.Schema.Types.Mixed, default: null }, // full gateway response blob
+
+//     // ── Amounts ─────────────────────────────────────────────────
+//     amountPaid: { type: Number, default: 0 },
+//     currency: { type: String, default: "INR" },
+//     paidAt: { type: Date, default: null },
+
+//     // ── Refund ──────────────────────────────────────────────────
+//     refundId: { type: String, default: "" },
+//     refundAmount: { type: Number, default: 0 },
+//     refundReason: { type: String, default: "" },
+//     refundedAt: { type: Date, default: null },
+//   },
+//   { _id: false },
+// );
+
+// // ─── Shipping / Delivery sub-schema ───────────────────────────────────────────
+// // Carrier agnostic — supports Shiprocket, Delhivery, DTDC, Blue Dart, manual, etc.
+// const ShippingSchema = new mongoose.Schema(
+//   {
+//     method: {
+//       type: String,
+//       enum: ["standard", "express", "same_day", "store_pickup", "custom"],
+//       default: "standard",
+//     },
+//     charge: { type: Number, default: 0 }, // shipping fee charged to customer
+//     isFree: { type: Boolean, default: false },
+//     estimatedDays: { type: Number, default: null }, // e.g. 5 (business days)
+//     estimatedDeliveryDate: { type: Date, default: null },
+
+//     // ── 3rd-party carrier fields (populated on shipment creation) ──
+//     carrier: { type: String, default: "" }, // "Shiprocket", "Delhivery", "DTDC"
+//     carrierId: { type: String, default: "" }, // shipment ID from carrier
+//     trackingNumber: { type: String, default: "" },
+//     trackingUrl: { type: String, default: "" }, // direct tracking link
+//     awbCode: { type: String, default: "" }, // Airway Bill number
+
+//     // ── Shiprocket / Delhivery specific fields ──────────────────
+//     waybill: { type: String, default: "" },
+//     courierName: { type: String, default: "" },
+//     pickupScheduled: { type: Date, default: null },
+
+//     // ── Raw response from shipping gateway ──────────────────────
+//     gatewayResponse: { type: mongoose.Schema.Types.Mixed, default: null },
+
+//     shippedAt: { type: Date, default: null },
+//     deliveredAt: { type: Date, default: null },
+//   },
+//   { _id: false },
+// );
+
+// const CouponSchema = new mongoose.Schema(
+//   {
+//     couponId: {
+//       type: mongoose.Schema.Types.ObjectId,
+//       ref: "Coupon",
+//       default: null,
+//     }, // ← reference to live Coupon doc
+//     code: { type: String, default: "" }, // e.g. "DIWALI500"
+//     discountType: {
+//       type: String,
+//       enum: ["flat", "percent", "free_shipping", "buy_x_get_y", ""],
+//       default: "",
+//     },
+//     discountValue: { type: Number, default: 0 }, // 500 or 15 (%)
+//     discountAmount: { type: Number, default: 0 }, // actual ₹ saved on this order
+//   },
+//   { _id: false },
+// );
+
+// // ─── Pricing sub-schema ───────────────────────────────────────────────────────
+// const PricingSchema = new mongoose.Schema(
+//   {
+//     subtotal: { type: Number, required: true }, // sum of all lineTotal
+//     shippingCharge: { type: Number, default: 0 },
+//     discountAmount: { type: Number, default: 0 }, // from coupon
+//     taxAmount: { type: Number, default: 0 }, // GST / future use
+//     taxRate: { type: Number, default: 0 }, // % e.g. 3 for 3% GST on gold
+//     total: { type: Number, required: true }, // what customer actually pays
+//     currency: { type: String, default: "INR" },
+//   },
+//   { _id: false },
+// );
+
+// // ─── Status history entry ─────────────────────────────────────────────────────
+// const StatusHistorySchema = new mongoose.Schema(
+//   {
+//     status: { type: String, required: true },
+//     note: { type: String, default: "" },
+//     changedBy: { type: String, default: "system" }, // "admin", "system", "customer"
+//     changedAt: { type: Date, default: Date.now },
+//   },
+//   { _id: false },
+// );
+
+// // ─── Main Order Schema ────────────────────────────────────────────────────────
+// const orderSchema = new mongoose.Schema(
+//   {
+//     // ─── Order Identity ────────────────────────────────────────
+//     orderNumber: {
+//       type: String,
+//       unique: true,
+//       // Generated before save: RJ-2026-XXXXX
+//     },
+
+//     // ─── Customer (guest or registered) ───────────────────────
+//     customer: {
+//       type: mongoose.Schema.Types.ObjectId,
+//       ref: "User",
+//       default: null, // null = guest order
+//     },
+//     customerName: { type: String, required: true, trim: true },
+//     customerEmail: {
+//       type: String,
+//       required: true,
+//       trim: true,
+//       lowercase: true,
+//       match: [/^\S+@\S+\.\S+$/, "Invalid email"],
+//     },
+//     customerPhone: { type: String, required: true, trim: true },
+
+//     // ─── Order items ───────────────────────────────────────────
+//     items: {
+//       type: [OrderItemSchema],
+//       validate: {
+//         validator: (arr) => arr.length >= 1,
+//         message: "Order must have at least one item",
+//       },
+//     },
+
+//     // ─── Addresses ────────────────────────────────────────────
+//     shippingAddress: { type: AddressSchema, required: true },
+//     billingAddress: { type: AddressSchema, default: null },
+//     billingSameAsShipping: { type: Boolean, default: true },
+
+//     // ─── Pricing ───────────────────────────────────────────────
+//     pricing: { type: PricingSchema, required: true },
+
+//     // ─── Coupon ────────────────────────────────────────────────
+//     coupon: { type: CouponSchema, default: null },
+
+//     // ─── Payment ───────────────────────────────────────────────
+//     payment: { type: PaymentSchema, required: true },
+
+//     // ─── Shipping / Delivery ───────────────────────────────────
+//     shipping: { type: ShippingSchema, default: () => ({}) },
+
+//     // ─── Order status ──────────────────────────────────────────
+//     status: {
+//       type: String,
+//       enum: [
+//         "pending", // order placed, payment not confirmed
+//         "confirmed", // payment confirmed / COD accepted
+//         "processing", // being packed / prepared
+//         "ready_to_ship", // packed, awaiting pickup
+//         "shipped", // handed to carrier
+//         "out_for_delivery",
+//         "delivered",
+//         "cancelled",
+//         "return_requested",
+//         "return_in_transit",
+//         "returned",
+//         "refunded",
+//         "failed", // payment failed
+//       ],
+//       default: "pending",
+//     },
+
+//     // ─── Status audit trail ────────────────────────────────────
+//     statusHistory: { type: [StatusHistorySchema], default: [] },
+
+//     // ─── Key timestamps ────────────────────────────────────────
+//     placedAt: { type: Date, default: Date.now },
+//     confirmedAt: { type: Date, default: null },
+//     processedAt: { type: Date, default: null },
+//     shippedAt: { type: Date, default: null },
+//     deliveredAt: { type: Date, default: null },
+//     cancelledAt: { type: Date, default: null },
+//     returnedAt: { type: Date, default: null },
+//     refundedAt: { type: Date, default: null },
+
+//     // ─── Admin fields ──────────────────────────────────────────
+//     adminNote: { type: String, default: "" },
+//     internalTags: { type: [String], default: [] }, // e.g. ["vip", "fragile", "gift"]
+//     isPriority: { type: Boolean, default: false },
+
+//     // ─── Customer facing ───────────────────────────────────────
+//     customerNote: { type: String, default: "" }, // note from customer at checkout
+//     giftMessage: { type: String, default: "" },
+//     isGift: { type: Boolean, default: false },
+
+//     // ─── Return / Cancellation ─────────────────────────────────
+//     cancellationReason: { type: String, default: "" },
+//     returnReason: { type: String, default: "" },
+
+//     // ─── Source ────────────────────────────────────────────────
+//     source: {
+//       type: String,
+//       enum: ["website", "instagram", "whatsapp", "admin", "app", "other"],
+//       default: "website",
+//     },
+//     ipAddress: { type: String, default: null },
+//     userAgent: { type: String, default: "" },
+//   },
+//   {
+//     timestamps: true, // createdAt, updatedAt
+//   },
+// );
+
+// // ─── Indexes ──────────────────────────────────────────────────────────────────
+// // orderSchema.index({ orderNumber: 1 });
+// orderSchema.index({ customerEmail: 1, placedAt: -1 });
+// orderSchema.index({ status: 1, placedAt: -1 });
+// orderSchema.index({ customer: 1, placedAt: -1 });
+// orderSchema.index({ "payment.status": 1 });
+// orderSchema.index({ "shipping.trackingNumber": 1 });
+
+// // ─── Pre-save: generate orderNumber ───────────────────────────────────────────
+
+// orderSchema.pre("save", async function () {
+//   if (this.orderNumber) return;
+
+//   const counter = await Counter.findByIdAndUpdate(
+//     { _id: "order" },
+//     { $inc: { seq: 1 } },
+//     { new: true, upsert: true },
+//   );
+
+//   const year = new Date().getFullYear();
+//   const padded = String(counter.seq).padStart(5, "0");
+//   this.orderNumber = `RJ-${year}-${padded}`;
+// });
+
+// // ─── Virtual: item count ──────────────────────────────────────────────────────
+// orderSchema.virtual("itemCount").get(function () {
+//   return this.items.reduce((sum, item) => sum + item.quantity, 0);
+// });
+
+// orderSchema.set("toJSON", { virtuals: true });
+// orderSchema.set("toObject", { virtuals: true });
+
+// module.exports = mongoose.model("Order", orderSchema);
+
+// ─── orderModel.js ────────────────────────────────────────────────────────────
+
 const mongoose = require("mongoose");
 const Counter = require("../Counter");
 
-// ─── Address sub-schema ───────────────────────────────────────────────────────
+// ─── Address ──────────────────────────────────────────────────────────────────
 const AddressSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true, trim: true },
@@ -17,8 +348,22 @@ const AddressSchema = new mongoose.Schema(
   { _id: false },
 );
 
-// ─── Order item sub-schema (snapshot at time of order) ────────────────────────
-// Critical: Never rely on live product data — prices & names change
+// ─── Variant snapshot ─────────────────────────────────────────────────────────
+// Immutable record of which variant was selected and its state at order time.
+// Stored even when the variant is later edited or deleted on the product.
+const VariantSnapshotSchema = new mongoose.Schema(
+  {
+    variantId: { type: mongoose.Schema.Types.ObjectId, default: null }, // original variant _id
+    title: { type: String, default: "" }, // e.g. "18\" / Rose Gold"
+    sku: { type: String, default: "" },
+    options: { type: Map, of: String, default: {} }, // { Size: "18\"", Metal: "Rose Gold" }
+    weightGrams: { type: Number, default: 0 },
+    image: { type: String, default: "" }, // first variant image (if any)
+  },
+  { _id: false },
+);
+
+// ─── Order item ───────────────────────────────────────────────────────────────
 const OrderItemSchema = new mongoose.Schema(
   {
     product: {
@@ -26,32 +371,32 @@ const OrderItemSchema = new mongoose.Schema(
       ref: "Product",
       required: true,
     },
-    // ── Snapshot fields — immutable record of what was ordered ──
-    name: { type: String, required: true }, // product name at time of order
+
+    // ── Product-level snapshot (immutable) ──────────────────────────────────
+    name: { type: String, required: true }, // product name at order time
     slug: { type: String, default: "" },
-    sku: { type: String, default: "" },
-    image: { type: String, default: "" }, // primary image URL
-    purity: { type: String, default: "" }, // "22kt"
-    metal: { type: String, default: "" },
+    sku: { type: String, default: "" }, // product-level SKU (not variant)
+    image: { type: String, default: "" }, // primary gallery image
     category: { type: String, default: "" },
 
-    // ── Variant selected ────────────────────────────────────────
-    sizeSelected: { type: String, default: "" }, // '18"', 'M', etc.
+    // ── Variant snapshot (null when no variants on product) ─────────────────
+    // When a variant is selected, pricing and identity come from the variant,
+    // not from the base product.
+    variant: { type: VariantSnapshotSchema, default: null },
 
-    // ── Pricing snapshot ────────────────────────────────────────
-    unitPrice: { type: Number, required: true }, // price at time of order
+    // ── Pricing snapshot ────────────────────────────────────────────────────
+    unitPrice: { type: Number, required: true }, // variant.price ?? product.price
     originalPrice: { type: Number, default: null }, // for showing discount
     quantity: { type: Number, required: true, min: 1, default: 1 },
     lineTotal: { type: Number, required: true }, // unitPrice × quantity
 
-    // ── Customisation (for engraving etc.) ─────────────────────
+    // ── Customisation ───────────────────────────────────────────────────────
     customNote: { type: String, default: "" }, // e.g. "Engrave: RAVI"
   },
-  { _id: true }, // keep _id so we can reference individual items in returns
+  { _id: true },
 );
 
-// ─── Payment sub-schema ───────────────────────────────────────────────────────
-// Gateway agnostic — supports Razorpay, Stripe, PayU, COD, etc.
+// ─── Payment ──────────────────────────────────────────────────────────────────
 const PaymentSchema = new mongoose.Schema(
   {
     method: {
@@ -79,19 +424,13 @@ const PaymentSchema = new mongoose.Schema(
       ],
       default: "pending",
     },
-
-    // ── Gateway-specific IDs (populated after payment) ─────────
-    gatewayOrderId: { type: String, default: "" }, // e.g. Razorpay order_id
-    gatewayPaymentId: { type: String, default: "" }, // e.g. Razorpay payment_id
-    gatewaySignature: { type: String, default: "" }, // for verification
-    gatewayResponse: { type: mongoose.Schema.Types.Mixed, default: null }, // full gateway response blob
-
-    // ── Amounts ─────────────────────────────────────────────────
+    gatewayOrderId: { type: String, default: "" },
+    gatewayPaymentId: { type: String, default: "" },
+    gatewaySignature: { type: String, default: "" },
+    gatewayResponse: { type: mongoose.Schema.Types.Mixed, default: null },
     amountPaid: { type: Number, default: 0 },
     currency: { type: String, default: "INR" },
     paidAt: { type: Date, default: null },
-
-    // ── Refund ──────────────────────────────────────────────────
     refundId: { type: String, default: "" },
     refundAmount: { type: Number, default: 0 },
     refundReason: { type: String, default: "" },
@@ -100,8 +439,7 @@ const PaymentSchema = new mongoose.Schema(
   { _id: false },
 );
 
-// ─── Shipping / Delivery sub-schema ───────────────────────────────────────────
-// Carrier agnostic — supports Shiprocket, Delhivery, DTDC, Blue Dart, manual, etc.
+// ─── Shipping ─────────────────────────────────────────────────────────────────
 const ShippingSchema = new mongoose.Schema(
   {
     method: {
@@ -109,71 +447,65 @@ const ShippingSchema = new mongoose.Schema(
       enum: ["standard", "express", "same_day", "store_pickup", "custom"],
       default: "standard",
     },
-    charge: { type: Number, default: 0 }, // shipping fee charged to customer
+    charge: { type: Number, default: 0 },
     isFree: { type: Boolean, default: false },
-    estimatedDays: { type: Number, default: null }, // e.g. 5 (business days)
+    estimatedDays: { type: Number, default: null },
     estimatedDeliveryDate: { type: Date, default: null },
-
-    // ── 3rd-party carrier fields (populated on shipment creation) ──
-    carrier: { type: String, default: "" }, // "Shiprocket", "Delhivery", "DTDC"
-    carrierId: { type: String, default: "" }, // shipment ID from carrier
+    carrier: { type: String, default: "" },
+    carrierId: { type: String, default: "" },
     trackingNumber: { type: String, default: "" },
-    trackingUrl: { type: String, default: "" }, // direct tracking link
-    awbCode: { type: String, default: "" }, // Airway Bill number
-
-    // ── Shiprocket / Delhivery specific fields ──────────────────
+    trackingUrl: { type: String, default: "" },
+    awbCode: { type: String, default: "" },
     waybill: { type: String, default: "" },
     courierName: { type: String, default: "" },
     pickupScheduled: { type: Date, default: null },
-
-    // ── Raw response from shipping gateway ──────────────────────
     gatewayResponse: { type: mongoose.Schema.Types.Mixed, default: null },
-
     shippedAt: { type: Date, default: null },
     deliveredAt: { type: Date, default: null },
   },
   { _id: false },
 );
 
+// ─── Coupon ───────────────────────────────────────────────────────────────────
 const CouponSchema = new mongoose.Schema(
   {
     couponId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Coupon",
       default: null,
-    }, // ← reference to live Coupon doc
-    code: { type: String, default: "" }, // e.g. "DIWALI500"
+    },
+    code: { type: String, default: "" },
     discountType: {
       type: String,
       enum: ["flat", "percent", "free_shipping", "buy_x_get_y", ""],
       default: "",
     },
-    discountValue: { type: Number, default: 0 }, // 500 or 15 (%)
-    discountAmount: { type: Number, default: 0 }, // actual ₹ saved on this order
+    discountValue: { type: Number, default: 0 },
+    discountAmount: { type: Number, default: 0 },
   },
   { _id: false },
 );
 
-// ─── Pricing sub-schema ───────────────────────────────────────────────────────
+// ─── Pricing ──────────────────────────────────────────────────────────────────
 const PricingSchema = new mongoose.Schema(
   {
-    subtotal: { type: Number, required: true }, // sum of all lineTotal
+    subtotal: { type: Number, required: true },
     shippingCharge: { type: Number, default: 0 },
-    discountAmount: { type: Number, default: 0 }, // from coupon
-    taxAmount: { type: Number, default: 0 }, // GST / future use
-    taxRate: { type: Number, default: 0 }, // % e.g. 3 for 3% GST on gold
-    total: { type: Number, required: true }, // what customer actually pays
+    discountAmount: { type: Number, default: 0 },
+    taxAmount: { type: Number, default: 0 },
+    taxRate: { type: Number, default: 0 },
+    total: { type: Number, required: true },
     currency: { type: String, default: "INR" },
   },
   { _id: false },
 );
 
-// ─── Status history entry ─────────────────────────────────────────────────────
+// ─── Status history ───────────────────────────────────────────────────────────
 const StatusHistorySchema = new mongoose.Schema(
   {
     status: { type: String, required: true },
     note: { type: String, default: "" },
-    changedBy: { type: String, default: "system" }, // "admin", "system", "customer"
+    changedBy: { type: String, default: "system" },
     changedAt: { type: Date, default: Date.now },
   },
   { _id: false },
@@ -182,18 +514,13 @@ const StatusHistorySchema = new mongoose.Schema(
 // ─── Main Order Schema ────────────────────────────────────────────────────────
 const orderSchema = new mongoose.Schema(
   {
-    // ─── Order Identity ────────────────────────────────────────
-    orderNumber: {
-      type: String,
-      unique: true,
-      // Generated before save: RJ-2026-XXXXX
-    },
+    orderNumber: { type: String, unique: true },
 
-    // ─── Customer (guest or registered) ───────────────────────
+    // ── Customer ────────────────────────────────────────────────────────────
     customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null, // null = guest order
+      default: null,
     },
     customerName: { type: String, required: true, trim: true },
     customerEmail: {
@@ -205,7 +532,7 @@ const orderSchema = new mongoose.Schema(
     },
     customerPhone: { type: String, required: true, trim: true },
 
-    // ─── Order items ───────────────────────────────────────────
+    // ── Items ───────────────────────────────────────────────────────────────
     items: {
       type: [OrderItemSchema],
       validate: {
@@ -214,32 +541,26 @@ const orderSchema = new mongoose.Schema(
       },
     },
 
-    // ─── Addresses ────────────────────────────────────────────
+    // ── Addresses ───────────────────────────────────────────────────────────
     shippingAddress: { type: AddressSchema, required: true },
     billingAddress: { type: AddressSchema, default: null },
     billingSameAsShipping: { type: Boolean, default: true },
 
-    // ─── Pricing ───────────────────────────────────────────────
+    // ── Pricing / Coupon / Payment / Shipping ───────────────────────────────
     pricing: { type: PricingSchema, required: true },
-
-    // ─── Coupon ────────────────────────────────────────────────
     coupon: { type: CouponSchema, default: null },
-
-    // ─── Payment ───────────────────────────────────────────────
     payment: { type: PaymentSchema, required: true },
-
-    // ─── Shipping / Delivery ───────────────────────────────────
     shipping: { type: ShippingSchema, default: () => ({}) },
 
-    // ─── Order status ──────────────────────────────────────────
+    // ── Status ──────────────────────────────────────────────────────────────
     status: {
       type: String,
       enum: [
-        "pending", // order placed, payment not confirmed
-        "confirmed", // payment confirmed / COD accepted
-        "processing", // being packed / prepared
-        "ready_to_ship", // packed, awaiting pickup
-        "shipped", // handed to carrier
+        "pending",
+        "confirmed",
+        "processing",
+        "ready_to_ship",
+        "shipped",
         "out_for_delivery",
         "delivered",
         "cancelled",
@@ -247,15 +568,13 @@ const orderSchema = new mongoose.Schema(
         "return_in_transit",
         "returned",
         "refunded",
-        "failed", // payment failed
+        "failed",
       ],
       default: "pending",
     },
-
-    // ─── Status audit trail ────────────────────────────────────
     statusHistory: { type: [StatusHistorySchema], default: [] },
 
-    // ─── Key timestamps ────────────────────────────────────────
+    // ── Timestamps ──────────────────────────────────────────────────────────
     placedAt: { type: Date, default: Date.now },
     confirmedAt: { type: Date, default: null },
     processedAt: { type: Date, default: null },
@@ -265,21 +584,21 @@ const orderSchema = new mongoose.Schema(
     returnedAt: { type: Date, default: null },
     refundedAt: { type: Date, default: null },
 
-    // ─── Admin fields ──────────────────────────────────────────
+    // ── Admin ───────────────────────────────────────────────────────────────
     adminNote: { type: String, default: "" },
-    internalTags: { type: [String], default: [] }, // e.g. ["vip", "fragile", "gift"]
+    internalTags: { type: [String], default: [] },
     isPriority: { type: Boolean, default: false },
 
-    // ─── Customer facing ───────────────────────────────────────
-    customerNote: { type: String, default: "" }, // note from customer at checkout
+    // ── Customer-facing ─────────────────────────────────────────────────────
+    customerNote: { type: String, default: "" },
     giftMessage: { type: String, default: "" },
     isGift: { type: Boolean, default: false },
 
-    // ─── Return / Cancellation ─────────────────────────────────
+    // ── Return / Cancellation ───────────────────────────────────────────────
     cancellationReason: { type: String, default: "" },
     returnReason: { type: String, default: "" },
 
-    // ─── Source ────────────────────────────────────────────────
+    // ── Source ──────────────────────────────────────────────────────────────
     source: {
       type: String,
       enum: ["website", "instagram", "whatsapp", "admin", "app", "other"],
@@ -288,36 +607,30 @@ const orderSchema = new mongoose.Schema(
     ipAddress: { type: String, default: null },
     userAgent: { type: String, default: "" },
   },
-  {
-    timestamps: true, // createdAt, updatedAt
-  },
+  { timestamps: true },
 );
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
-// orderSchema.index({ orderNumber: 1 });
 orderSchema.index({ customerEmail: 1, placedAt: -1 });
 orderSchema.index({ status: 1, placedAt: -1 });
 orderSchema.index({ customer: 1, placedAt: -1 });
 orderSchema.index({ "payment.status": 1 });
 orderSchema.index({ "shipping.trackingNumber": 1 });
 
-// ─── Pre-save: generate orderNumber ───────────────────────────────────────────
-
+// ─── Pre-save: auto-generate orderNumber ──────────────────────────────────────
 orderSchema.pre("save", async function () {
   if (this.orderNumber) return;
-
   const counter = await Counter.findByIdAndUpdate(
     { _id: "order" },
     { $inc: { seq: 1 } },
     { new: true, upsert: true },
   );
-
   const year = new Date().getFullYear();
   const padded = String(counter.seq).padStart(5, "0");
   this.orderNumber = `RJ-${year}-${padded}`;
 });
 
-// ─── Virtual: item count ──────────────────────────────────────────────────────
+// ─── Virtuals ─────────────────────────────────────────────────────────────────
 orderSchema.virtual("itemCount").get(function () {
   return this.items.reduce((sum, item) => sum + item.quantity, 0);
 });
