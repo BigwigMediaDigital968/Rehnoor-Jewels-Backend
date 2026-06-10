@@ -182,7 +182,7 @@ const placeOrder = async (req, res) => {
 
     let subtotal = orderItems.reduce((sum, i) => sum + i.lineTotal, 0);
     let totalItemCount = orderItems.reduce((sum, i) => sum + i.quantity, 0);
-    let shippingCharge = subtotal >= 2000 ? 0 : 149;
+    let shippingCharge = subtotal >= 100 ? 0 : 149;
 
     // ── Coupon validation ──────────────────────────────────────────────────
     let couponSnapshot = null;
