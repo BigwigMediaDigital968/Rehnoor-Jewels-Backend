@@ -24,17 +24,17 @@ const leadSchema = new mongoose.Schema(
     subject: {
       type: String,
       required: [true, "Subject is required"],
-      enum: {
-        values: [
-          "General Inquiry",
-          "Order Support",
-          "Custom Jewellery",
-          "Returns & Refunds",
-          "Wholesale",
-          "Other",
-        ],
-        message: "Please select a valid subject",
-      },
+      // enum: {
+      //   values: [
+      //     "General Inquiry",
+      //     "Order Support",
+      //     "Custom Jewellery",
+      //     "Returns & Refunds",
+      //     "Wholesale",
+      //     "Other",
+      //   ],
+      //   message: "Please select a valid subject",
+      // },
     },
     message: {
       type: String,
