@@ -176,6 +176,57 @@ async function purgeRemovedVariantImages(existingVariants, incomingVariants) {
 
 // ─── PUBLIC ────────────────────────────────────────────────────────────────────
 
+const getStats = async (req, res) => {
+  try {
+
+    const [products, active, outOfStock, collection, activeCollection] = await Promise.all([
+      Product.countDocuments(),
+      Product.countDocuments({ isActive: true }),
+
+      // 2. Count out-of-stock products dynamically
+      Product.countDocuments({
+        $or: [
+          // Case 1: Simple product with 0 stock
+          { variants: { $size: 0 }, stock: 0 },
+          // Case 2: Variant product where NO active variant has stock > 0 (or null)
+          {
+            variants: { 
+              $not: { 
+                $elemMatch: { 
+                  isActive: true, 
+                  $or: [{ stock: null }, { stock: { $gt: 0 } }] 
+                } 
+              } 
+            },
+            "variants.0": { $exists: true } // Must have at least one variant
+          }
+        ]
+      }),
+
+      Collection.countDocuments(),
+      Collection.countDocuments({ isActive: true }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        products: {
+          all: products,
+          active: active,
+          outOfStock: outOfStock
+        },
+        collection: {
+          all: collection,
+          active: activeCollection,
+        }
+
+      },
+    });
+  } catch (error) {
+    return handleMongoError(error, res);
+  }
+}
+
 const getPublicProducts = async (req, res) => {
   try {
     const {
@@ -904,6 +955,7 @@ const bulkDeleteProducts = async (req, res) => {
 
 module.exports = {
   // Public
+  getStats,
   getPublicProducts,
   getPublicProductByIdOrSlug,
 

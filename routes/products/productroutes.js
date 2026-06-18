@@ -16,6 +16,7 @@ const {
   deleteVariant,
   setDefaultVariant,
   exportProductsExcel,
+  getStats,
 } = require("../../controller/Products/productcontroller");
 
 const { protect, adminOnly } = require("../../middleware/Authmiddleware");
@@ -29,6 +30,8 @@ const adminAuth = [protect, adminOnly];
 
 // GET /api/products?collection=&category=&tag=&search=&page=&limit=&sort=
 router.get("/", getPublicProducts);
+router.get("/stats", getStats);
+
 
 // ─── ADMIN — products ──────────────────────────────────────────────────────────
 
