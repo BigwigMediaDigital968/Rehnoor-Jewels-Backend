@@ -178,34 +178,34 @@ async function purgeRemovedVariantImages(existingVariants, incomingVariants) {
 
 const getStats = async (req, res) => {
   try {
+    const [products, active, outOfStock, collection, activeCollection] =
+      await Promise.all([
+        Product.countDocuments(),
+        Product.countDocuments({ isActive: true }),
 
-    const [products, active, outOfStock, collection, activeCollection] = await Promise.all([
-      Product.countDocuments(),
-      Product.countDocuments({ isActive: true }),
-
-      // 2. Count out-of-stock products dynamically
-      Product.countDocuments({
-        $or: [
-          // Case 1: Simple product with 0 stock
-          { variants: { $size: 0 }, stock: 0 },
-          // Case 2: Variant product where NO active variant has stock > 0 (or null)
-          {
-            variants: { 
-              $not: { 
-                $elemMatch: { 
-                  isActive: true, 
-                  $or: [{ stock: null }, { stock: { $gt: 0 } }] 
-                } 
-              } 
+        // 2. Count out-of-stock products dynamically
+        Product.countDocuments({
+          $or: [
+            // Case 1: Simple product with 0 stock
+            { variants: { $size: 0 }, stock: 0 },
+            // Case 2: Variant product where NO active variant has stock > 0 (or null)
+            {
+              variants: {
+                $not: {
+                  $elemMatch: {
+                    isActive: true,
+                    $or: [{ stock: null }, { stock: { $gt: 0 } }],
+                  },
+                },
+              },
+              "variants.0": { $exists: true }, // Must have at least one variant
             },
-            "variants.0": { $exists: true } // Must have at least one variant
-          }
-        ]
-      }),
+          ],
+        }),
 
-      Collection.countDocuments(),
-      Collection.countDocuments({ isActive: true }),
-    ]);
+        Collection.countDocuments(),
+        Collection.countDocuments({ isActive: true }),
+      ]);
 
     return res.status(200).json({
       success: true,
@@ -213,19 +213,18 @@ const getStats = async (req, res) => {
         products: {
           all: products,
           active: active,
-          outOfStock: outOfStock
+          outOfStock: outOfStock,
         },
         collection: {
           all: collection,
           active: activeCollection,
-        }
-
+        },
       },
     });
   } catch (error) {
     return handleMongoError(error, res);
   }
-}
+};
 
 const getPublicProducts = async (req, res) => {
   try {
@@ -238,7 +237,7 @@ const getPublicProducts = async (req, res) => {
       maxPrice,
       featured,
       page = 1,
-      limit = 12,
+      limit = 1000,
       sort = "sortOrder",
     } = req.query;
 
