@@ -4,6 +4,7 @@ const { createOrder } = require("../../services/order/orderService");
 const {
   applyCouponToOrder,
 } = require("../../controller/coupon/couponController");
+const sendInvoiceEmail = require("../../services/mail/sendInvoiceEmail");
 
 // ─── Status helper ────────────────────────────────────────────────────────────
 
@@ -285,6 +286,15 @@ const placeOrder = async (req, res) => {
       }
     }
 
+    try {
+      await sendInvoiceEmail(order);
+    } catch (emailError) {
+      console.error(
+        `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
+        emailError.message,
+      );
+    }
+
     return res.status(201).json({
       success: true,
       message: "Order placed successfully.",
@@ -300,10 +310,10 @@ const placeOrder = async (req, res) => {
         },
         coupon: couponSnapshot
           ? {
-              code: couponSnapshot.code,
-              discountType: couponSnapshot.discountType,
-              discountAmount: couponSnapshot.discountAmount,
-            }
+            code: couponSnapshot.code,
+            discountType: couponSnapshot.discountType,
+            discountAmount: couponSnapshot.discountAmount,
+          }
           : null,
         paymentMethod: order.payment.method,
         razorpayOrderId: razorpayOrderId || null,
@@ -320,27 +330,29 @@ const trackOrder = async (req, res) => {
     const { orderNumber } = req.params;
     const { email } = req.query;
 
-    if (!email) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Email is required for tracking." });
+    const query = {
+      orderNumber,
+    };
+
+    if (email) {
+      query.customerEmail = email.toLowerCase();
     }
 
-    const order = await Order.findOne({
-      orderNumber,
-      customerEmail: email.toLowerCase(),
-    }).select(
+    const order = await Order.findOne(query).select(
       "orderNumber status shipping statusHistory pricing items placedAt shippedAt deliveredAt",
     );
 
     if (!order) {
       return res.status(404).json({
         success: false,
-        message: "Order not found. Check the order number and email.",
+        message: "Order not found.",
       });
     }
 
-    return res.status(200).json({ success: true, data: order });
+    return res.status(200).json({
+      success: true,
+      data: order,
+    });
   } catch (error) {
     return handleOrderError(error, res);
   }
