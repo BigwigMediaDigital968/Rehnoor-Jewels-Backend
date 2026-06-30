@@ -9,16 +9,116 @@ const brevoHeaders = () => ({
 });
 
 const sendInvoiceEmail = async (order) => {
+  // console.log(order);
   const itemsHtml = order.items
     .map(
       (item) => `
+<tr>
+  <td
+    style="
+      padding:15px;
+      border-top:1px solid #eee;
+    "
+  >
+    <table cellpadding="0" cellspacing="0">
       <tr>
-        <td>${item.productName}</td>
-        <td>${item.quantity}</td>
-        <td>₹${item.unitPrice}</td>
-        <td>₹${item.lineTotal}</td>
+        <td width="70" valign="top">
+          <img
+            src="${item.image}"
+            width="60"
+            height="60"
+            style="
+              display:block;
+              border-radius:8px;
+              object-fit:cover;
+            "
+          />
+        </td>
+
+        
+
+        <td valign="middle" style="padding-left:12px;">
+          <div
+            style="
+              font-size:14px;
+              color:#222;
+              font-weight:600;
+              line-height:20px;
+            "
+          >
+            ${item.name}
+          </div>
+
+          ${
+            item.sku
+              ? `
+          <div
+            style="
+              color:#888;
+              font-size:12px;
+              margin-top:4px;
+            "
+          >
+            SKU: ${item.sku}
+          </div>
+          `
+              : ""
+          }
+
+          ${
+            item.slug
+              ? `
+              <div style="margin-top:5px;">
+              <a href="https://rehnoorjewels.com/product/${item.slug}"
+              style="
+              color:#003720; 
+              text-decoration:none;
+              font-size:12px;
+              "
+              >
+              View Product →
+              </a>
+              </div>
+              `
+              : ""
+          }
+        </td>
       </tr>
-    `,
+    </table>
+  </td>
+
+  <td
+    align="center"
+    style="
+      border-top:1px solid #eee;
+      font-size:14px;
+    "
+  >
+    ${item.quantity}
+  </td>
+
+  <td
+    align="right"
+    style="
+      border-top:1px solid #eee;
+      font-size:14px;
+    "
+  >
+    ₹${item.unitPrice}
+  </td>
+
+  <td
+    align="right"
+    style="
+      border-top:1px solid #eee;
+      font-size:14px;
+      font-weight:600;
+    "
+  >
+    ₹${item.lineTotal}
+  </td>
+</tr>
+`,
     )
     .join("");
 
@@ -26,135 +126,388 @@ const sendInvoiceEmail = async (order) => {
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Rehnoor Jewels Invoice</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Order Confirmation</title>
 </head>
-<body style="margin:0;padding:40px 20px;background:#F9F6EE;font-family:Georgia,serif;display:flex;justify-content:center;">
 
-  <div style="width: 100%; max-width: 600px; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.08); box-sizing: border-box;">
-    
-    <div style="background:#003720; padding:40px 48px; text-align:center;">
-      <h1 style="color:#FCC131; font-size:28px; margin:0; letter-spacing:2px; font-weight:400;">
-        REHNOOR JEWELS
-      </h1>
-      <p style="color:rgba(255,255,255,0.65); margin:8px 0 0; font-size:13px; letter-spacing:3px; text-transform:uppercase;">
-        Order Confirmed
-      </p>
-    </div>
+<body style="margin:0;padding:0;background:#f8f6f2;font-family:Arial,Helvetica,sans-serif;">
 
-    <div style="padding:48px 48px 24px; box-sizing: border-box;">
-      
-      <p style="color:#555; line-height:1.8; font-size:15px; margin:0;">
-        Hello \${order.customerName},
-      </p>
-      <p style="color:#555; line-height:1.8; font-size:15px; margin:8px 0 0;">
-        Thank you for your purchase. We are preparing your timeless pieces with the utmost care and attention.
-      </p>
-    </div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f8f6f2">
+<tr>
+<td align="center" style="padding:30px 15px;">
 
-    <div style="padding:0 48px 24px; box-sizing: border-box;">
-      <div style="border-bottom: 1px solid #E5E0D4; padding-bottom: 12px; margin-bottom: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px;">
-        <div style="min-width: 200px;">
-          <h3 style="color: #003720; font-size: 14px; margin: 0 0 4px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;">
-            Order Summary
-          </h3>
-          <span style="color: #D4A017; font-size: 13px; font-weight: 600; letter-spacing: 1px; display: inline-block;">
-            Order ID: #\${order.orderNumber}
-          </span>
-        </div>
-        <div style="margin-top: 4px;">
-          <a href="http://rehnoorjewels.com/track-order?id=\${order.orderNumber}"
-            style="color: #003720; text-decoration: none; font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; border-bottom: 1px solid #003720; padding-bottom: 2px; display: inline-block;">
-            Track Order &rarr;
-          </a>
-        </div>
-      </div>
+<table width="600" cellpadding="0" cellspacing="0" border="0"
+style="background:#ffffff;border-radius:16px;overflow:hidden;">
 
-      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px; color:#555;">
-        <thead>
-          <tr style="color:#003720; font-weight:600;">
-            <th align="left" style="padding:10px 0; border-bottom:2px solid #003720;">Product</th>
-            <th align="center" style="padding:10px 0; border-bottom:2px solid #003720;">Qty</th>
-            <th align="right" style="padding:10px 0; border-bottom:2px solid #003720;">Price</th>
-            <th align="right" style="padding:10px 0; border-bottom:2px solid #003720;">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          \${itemsHtml}
-        </tbody>
-      </table>
-    </div>
+<!-- HEADER -->
+<tr>
+<td align="center"
+style="background:#003720;padding:40px 30px;">
+<h1 style="
+margin:0;
+font-size:32px;
+color:#FCC131;
+font-weight:bold;
+letter-spacing:2px;
+">
+REHNOOR JEWELS
+</h1>
 
-    <div style="padding: 0 48px 32px; display: flex; justify-content: flex-end; box-sizing: border-box;">
-      <div style="width: 100%; max-width: 240px; font-size: 14px;">
-        <div style="display: flex; justify-content: space-between; padding: 6px 0;">
-          <span style="color: #777;">Subtotal</span>
-          <span style="color: #333;">₹\${order.pricing.subtotal}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 6px 0;">
-          <span style="color: #777;">Shipping</span>
-          <span style="color: #333;">₹\${order.pricing.shippingCharge}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 6px 0;">
-          <span style="color: #777;">Discount</span>
-          <span style="color: #B81D24;">-₹\${order.pricing.discountAmount}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 12px 0 0; margin-top: 4px; border-top: 1px solid #E5E0D4; font-size: 16px; font-weight: 600;">
-          <span style="color: #003720;">Total</span>
-          <span style="color: #D4A017;">₹\${order.pricing.total}</span>
-        </div>
-      </div>
-    </div>
+<p style="
+margin-top:12px;
+font-size:13px;
+letter-spacing:3px;
+text-transform:uppercase;
+color:#ffffff;
+opacity:0.8;
+">
+Order Confirmed
+</p>
+</td>
+</tr>
 
-    <div style="padding: 0 48px 24px; box-sizing: border-box;">
-      <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 24px;">
-        <div style="flex: 1; min-width: 240px; background: #F9F6EE; border-radius: 12px; padding: 20px; box-sizing: border-box; line-height: 1.6; color: #555;">
-          <h4 style="color: #003720; font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">
-            Customer Details
-          </h4>
-          <strong style="color: #1a1a1a; display: block; margin-bottom: 2px;">\${order.customerName}</strong>
-          \${order.customerEmail}<br>
-          \${order.customerPhone}
-        </div>
-        <div style="flex: 1; min-width: 240px; background: #F9F6EE; border-radius: 12px; padding: 20px; box-sizing: border-box; line-height: 1.6; color: #555;">
-          <h4 style="color: #003720; font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">
-            Shipping Address
-          </h4>
-          <strong style="color: #1a1a1a; display: block; margin-bottom: 2px;">\${order.shippingAddress?.fullName || ""}</strong>
-          \${order.shippingAddress?.addressLine1 || ""}<br>
-          \${order.shippingAddress?.addressLine2 ? order.shippingAddress.addressLine2 + '<br>' : ''}
-          \${order.shippingAddress?.city || ""}, \text{\${order.shippingAddress?.state || ""}} - \${order.shippingAddress?.postalCode || ""}
-        </div>
-      </div>
+<!-- GREETING -->
+<tr>
+<td style="padding:40px 40px 20px;">
+<p style="
+margin:0;
+font-size:16px;
+color:#333;
+line-height:28px;
+">
+Hello <strong>${order.customerName}</strong>,
+</p>
 
-      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; border-top: 1px dashed #E5E0D4; padding: 20px 0; color: #555;">
-        <div><strong>Payment Method:</strong> \${order.payment?.method}</div>
-        <div><strong>Order Status:</strong> <span style="color: #003720; font-weight: 600;">\${order.status}</span></div>
-      </div>
-    </div>
+<p style="
+font-size:15px;
+line-height:28px;
+color:#555;
+margin-top:15px;
+">
+Thank you for shopping with Rehnoor Jewels.
+Your order has been successfully placed and we have started preparing your jewellery with utmost care.
+</p>
+</td>
+</tr>
 
-    <div style="background:#F9F6EE; padding:24px 48px; text-align:center; border-top:1px solid #E5E0D4; box-sizing: border-box;">
-      <p style="color:#888; font-size:13px; margin:0;">
-        Thank you for choosing Rehnoor Jewels.
-      </p>
-      <p style="color:#aaa; font-size:12px; margin:8px 0 0; line-height: 1.5;">
-        If you have any questions regarding your order, simply reply to this email.
-      </p>
-      <p style="color:#aaa; font-size:12px; margin:10px 0 0;">
-        Rehnoor Jewels • New Delhi, India
-      </p>
-    </div>
+<!-- ORDER SUMMARY -->
+<tr>
+<td style="padding:0 40px 30px;">
 
-  </div>
+<table width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td>
+<h3 style="
+margin:0;
+font-size:16px;
+color:#003720;
+">
+Order Summary
+</h3>
+
+<p style="
+margin-top:8px;
+font-size:14px;
+color:#666;
+">
+Order Number:
+<strong>#${order.orderNumber}</strong>
+</p>
+
+<p style="
+margin-top:5px;
+font-size:14px;
+color:#666;
+">
+Placed On:
+<strong>${new Date(order.createdAt).toLocaleDateString("en-IN")}</strong>
+</p>
+</td>
+
+<td align="right">
+<a
+href="https://rehnoorjewels.com/track-order?id=${order.orderNumber}"
+style="
+background:#003720;
+color:#fff;
+text-decoration:none;
+padding:12px 18px;
+border-radius:6px;
+display:inline-block;
+font-size:13px;
+"
+>
+Track Order
+</a>
+</td>
+</tr>
+</table>
+
+</td>
+</tr>
+
+<!-- ITEMS -->
+<tr>
+<td style="padding:0 40px 30px;">
+
+<table width="100%" cellpadding="12" cellspacing="0"
+style="
+border:1px solid #eee;
+border-collapse:collapse;
+">
+
+<tr bgcolor="#f8f6f2">
+<th align="left">Product</th>
+<th align="center">Qty</th>
+<th align="right">Price</th>
+<th align="right">Total</th>
+</tr>
+
+${itemsHtml}
+
+</table>
+
+</td>
+</tr>
+
+<!-- PRICE SUMMARY -->
+<tr>
+<td style="padding:0 40px 30px;">
+
+<table width="100%" cellpadding="8">
+
+<tr>
+<td style="color:#666;">Subtotal</td>
+<td align="right">
+₹${order.pricing.subtotal}
+</td>
+</tr>
+
+<tr>
+<td style="color:#666;">Shipping</td>
+<td align="right">
+₹${order.pricing.shippingCharge}
+</td>
+</tr>
+
+<tr>
+<td style="color:#666;">Discount</td>
+<td align="right" style="color:#d62828;">
+-₹${order.pricing.discountAmount}
+</td>
+</tr>
+
+<tr>
+<td colspan="2">
+<hr style="border:none;border-top:1px solid #ddd;">
+</td>
+</tr>
+
+<tr>
+<td>
+<strong>Total</strong>
+</td>
+<td align="right">
+<strong style="
+font-size:20px;
+color:#003720;
+">
+₹${order.pricing.total}
+</strong>
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+
+<!-- CUSTOMER DETAILS -->
+<tr>
+<td style="padding:0 40px 30px;">
+
+<table width="100%" cellpadding="0" cellspacing="0">
+
+<tr>
+
+<td width="48%"
+valign="top"
+style="
+background:#f8f6f2;
+padding:20px;
+border-radius:10px;
+">
+
+<h3 style="
+margin-top:0;
+font-size:14px;
+color:#003720;
+">
+Customer Details
+</h3>
+
+<p style="line-height:26px;color:#555;">
+<strong>${order.customerName}</strong><br>
+${order.customerEmail}<br>
+${order.customerPhone}
+</p>
+
+</td>
+
+<td width="4%"></td>
+
+<td width="48%"
+valign="top"
+style="
+background:#f8f6f2;
+padding:20px;
+border-radius:10px;
+">
+
+<h3 style="
+margin-top:0;
+font-size:14px;
+color:#003720;
+">
+Shipping Address
+</h3>
+
+<p style="line-height:26px;color:#555;">
+
+<strong>
+${order.shippingAddress?.fullName || ""}
+</strong><br>
+
+${order.shippingAddress?.addressLine1 || ""}<br>
+
+${
+  order.shippingAddress?.addressLine2
+    ? `${order.shippingAddress.addressLine2}<br>`
+    : ""
+}
+
+${order.shippingAddress?.city || ""},
+${order.shippingAddress?.state || ""}
+
+- ${order.shippingAddress?.pincode || ""}<br>
+
+${order.shippingAddress?.country || "India"}
+
+</p>
+
+</td>
+
+</tr>
+
+</table>
+
+</td>
+</tr>
+
+<!-- PAYMENT -->
+<tr>
+<td style="padding:0 40px 30px;">
+
+<table width="100%"
+style="
+background:#f8f6f2;
+padding:20px;
+border-radius:10px;
+">
+
+<tr>
+<td>
+Payment Method
+</td>
+<td align="right">
+<strong>
+${order.payment?.method.toUpperCase()}
+</strong>
+</td>
+</tr>
+
+<tr>
+<td>
+Payment Status
+</td>
+<td align="right">
+<strong>
+${order.payment?.status || "Pending"}
+</strong>
+</td>
+</tr>
+
+<tr>
+<td>
+Order Status
+</td>
+<td align="right">
+<strong style="color:#003720;">
+${order.status}
+</strong>
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+
+<!-- FOOTER -->
+<tr>
+<td
+align="center"
+style="
+background:#f8f6f2;
+padding:35px;
+border-top:1px solid #eee;
+">
+
+<p style="
+font-size:14px;
+color:#666;
+margin:0;
+">
+Thank you for choosing
+<strong>Rehnoor Jewels</strong>.
+</p>
+
+<p style="
+margin-top:15px;
+font-size:13px;
+color:#888;
+line-height:24px;
+">
+If you have any questions regarding your order,
+simply reply to this email.
+</p>
+
+<p style="
+margin-top:20px;
+font-size:12px;
+color:#aaa;
+">
+Rehnoor Jewels • New Delhi, India
+</p>
+
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+</table>
 
 </body>
-</html>`;
+</html>
+`;
 
   const payload = {
     sender: {
       email: process.env.BREVO_SENDER_EMAIL,
-      name: process.env.BREVO_SENDER_NAME || "Store",
+      name: process.env.BREVO_SENDER_NAME || "Order Confirmed",
     },
 
     to: [
@@ -164,10 +517,20 @@ const sendInvoiceEmail = async (order) => {
       },
     ],
 
+    bcc: [
+      {
+        email: "hello@rehnoorjewels.com",
+        name: "Rehnoor Jewels Admin",
+      },
+    ],
+
     subject: `Invoice - ${order.orderNumber}`,
 
     htmlContent,
   };
+
+  console.log("BREVO_API_KEY:", process.env.BREVO_API_KEY);
+  console.log("BREVO_SENDER_EMAIL:", process.env.BREVO_SENDER_EMAIL);
 
   const res = await axios.post(`${BREVO_BASE}/smtp/email`, payload, {
     headers: brevoHeaders(),

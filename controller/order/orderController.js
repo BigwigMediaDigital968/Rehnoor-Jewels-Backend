@@ -5,6 +5,10 @@ const {
   applyCouponToOrder,
 } = require("../../controller/coupon/couponController");
 const sendInvoiceEmail = require("../../services/mail/sendInvoiceEmail");
+const sendSMSOrderConfirmation = require("../../services/notification/sendSMS");
+const sendWhatsAppOrderConfirmation = require("../../services/notification/sendWhatsapp");
+const sendAdminWhatsApp = require("../../services/mail/sendAdminWhatsApp");
+const sendAdminOrderNotification = require("../../services/mail/sendAdminOrderNotification");
 
 // ─── Status helper ────────────────────────────────────────────────────────────
 
@@ -295,6 +299,14 @@ const placeOrder = async (req, res) => {
       );
     }
 
+    sendWhatsAppOrderConfirmation(order).catch(console.error);
+
+    sendSMSOrderConfirmation(order).catch(console.error);
+
+    sendAdminOrderNotification(order).catch(console.error);
+
+    sendAdminWhatsApp(order).catch(console.error);
+
     return res.status(201).json({
       success: true,
       message: "Order placed successfully.",
@@ -310,10 +322,10 @@ const placeOrder = async (req, res) => {
         },
         coupon: couponSnapshot
           ? {
-            code: couponSnapshot.code,
-            discountType: couponSnapshot.discountType,
-            discountAmount: couponSnapshot.discountAmount,
-          }
+              code: couponSnapshot.code,
+              discountType: couponSnapshot.discountType,
+              discountAmount: couponSnapshot.discountAmount,
+            }
           : null,
         paymentMethod: order.payment.method,
         razorpayOrderId: razorpayOrderId || null,
