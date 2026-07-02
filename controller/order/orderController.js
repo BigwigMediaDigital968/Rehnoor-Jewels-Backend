@@ -322,10 +322,10 @@ const placeOrder = async (req, res) => {
         },
         coupon: couponSnapshot
           ? {
-              code: couponSnapshot.code,
-              discountType: couponSnapshot.discountType,
-              discountAmount: couponSnapshot.discountAmount,
-            }
+            code: couponSnapshot.code,
+            discountType: couponSnapshot.discountType,
+            discountAmount: couponSnapshot.discountAmount,
+          }
           : null,
         paymentMethod: order.payment.method,
         razorpayOrderId: razorpayOrderId || null,
