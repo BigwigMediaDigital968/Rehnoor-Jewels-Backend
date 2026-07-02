@@ -16,6 +16,7 @@ Thank you for shopping with Rehnoor Jewels.`,
       from: process.env.TWILIO_PHONE_NUMBER,
       to: `+91${order.customerPhone}`,
     });
+    console.log(`SMS order confirmation sent to ${order.customerPhone}`);
   } catch (err) {
     console.error("SMS Error:", err.message);
   }

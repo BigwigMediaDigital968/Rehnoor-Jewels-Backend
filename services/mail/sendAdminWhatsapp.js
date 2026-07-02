@@ -12,7 +12,7 @@ Qty: ${item.quantity}
 
   await client.messages.create({
     from: process.env.TWILIO_WHATSAPP_NUMBER,
-    to: `whatsapp:+${process.env.ADMIN_PHONE}`,
+    to: `whatsapp:${process.env.ADMIN_PHONE}`,
     body: `
 🛍️ NEW ORDER RECEIVED
 

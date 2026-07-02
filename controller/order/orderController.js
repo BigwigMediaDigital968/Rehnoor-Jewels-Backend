@@ -303,9 +303,9 @@ const placeOrder = async (req, res) => {
 
     sendSMSOrderConfirmation(order).catch(console.error);
 
-    sendAdminOrderNotification(order).catch(console.error);
+    sendAdminOrderNotification(order).catch(console.error); //Mail notification to admin for new order
 
-    sendAdminWhatsApp(order).catch(console.error);
+    // sendAdminWhatsApp(order).catch(console.error);
 
     return res.status(201).json({
       success: true,
