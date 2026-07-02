@@ -6,7 +6,7 @@ const {
 } = require("../../controller/coupon/couponController");
 const sendInvoiceEmail = require("../../services/mail/sendInvoiceEmail");
 const sendSMSOrderConfirmation = require("../../services/notification/sendSMS");
-const sendAdminWhatsApp = require("../../services/mail/sendAdminWhatsApp");
+const sendAdminWhatsApp = require("../../services/mail/sendAdminWhatsApp.js");
 const sendAdminOrderNotification = require("../../services/mail/sendAdminOrderNotification");
 const sendWhatsappOrderConfirmation = require("../../services/notification/sendWhatsapp.js");
 
