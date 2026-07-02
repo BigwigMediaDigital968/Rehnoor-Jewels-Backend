@@ -6,9 +6,9 @@ const {
 } = require("../../controller/coupon/couponController");
 const sendInvoiceEmail = require("../../services/mail/sendInvoiceEmail");
 const sendSMSOrderConfirmation = require("../../services/notification/sendSMS");
-const sendWhatsAppOrderConfirmation = require("../../services/notification/sendWhatsapp");
 const sendAdminWhatsApp = require("../../services/mail/sendAdminWhatsApp");
 const sendAdminOrderNotification = require("../../services/mail/sendAdminOrderNotification");
+const sendWhatsappOrderConfirmation = require("../../services/notification/sendWhatsapp.js");
 
 // ─── Status helper ────────────────────────────────────────────────────────────
 
@@ -299,7 +299,7 @@ const placeOrder = async (req, res) => {
       );
     }
 
-    sendWhatsAppOrderConfirmation(order).catch(console.error);
+    sendWhatsappOrderConfirmation(order).catch(console.error);
 
     sendSMSOrderConfirmation(order).catch(console.error);
 
