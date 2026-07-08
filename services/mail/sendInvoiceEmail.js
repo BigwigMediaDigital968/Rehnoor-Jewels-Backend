@@ -517,12 +517,12 @@ Rehnoor Jewels • New Delhi, India
       },
     ],
 
-    bcc: [
-      {
-        email: "hello@rehnoorjewels.com",
-        name: "Rehnoor Jewels Admin",
-      },
-    ],
+    // bcc: [
+    //   {
+    //     email: "hello@rehnoorjewels.com",
+    //     name: "Rehnoor Jewels Admin",
+    //   },
+    // ],
 
     subject: `Invoice - ${order.orderNumber}`,
 
@@ -535,7 +535,7 @@ Rehnoor Jewels • New Delhi, India
   const res = await axios.post(`${BREVO_BASE}/smtp/email`, payload, {
     headers: brevoHeaders(),
   });
-  console.log(res);
+  // console.log(res);
 };
 
 module.exports = sendInvoiceEmail;

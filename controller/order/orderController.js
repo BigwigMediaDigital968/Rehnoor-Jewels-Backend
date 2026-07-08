@@ -290,7 +290,9 @@ const placeOrder = async (req, res) => {
       }
     }
 
-    try {
+    if(paymentMethod === 'cod'){
+
+      try {
       await sendInvoiceEmail(order);
     } catch (emailError) {
       console.error(
@@ -299,7 +301,6 @@ const placeOrder = async (req, res) => {
       );
     }
 
-    if(paymentMethod === 'cod'){
     sendWhatsappOrderConfirmation(order).catch(console.error);
 
     sendSMSOrderConfirmation(order).catch(console.error);

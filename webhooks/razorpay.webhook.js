@@ -1,8 +1,10 @@
 const crypto = require("crypto");
 const Order = require("../model/Order/orderModel");
-const sendWhatsappOrderConfirmation = require("../services/notification/sendWhatsapp");
+const sendWhatsappOrderConfirmation = require("../services/notification/sendWhatsapp.js");
 const sendSMSOrderConfirmation = require("../services/notification/sendSMS");
 const sendAdminOrderNotification = require("../services/mail/sendAdminOrderNotification");
+const { sendPaymentCancelMail } = require("../services/notification/orderMail");
+const sendInvoiceEmail = require("../services/mail/sendInvoiceEmail");
 
 // Mount BEFORE express.json() in app.js:
 // app.post("/webhooks/razorpay", express.raw({ type: "application/json" }), razorpayWebhook);
@@ -37,6 +39,17 @@ async function razorpayWebhook(req, res) {
         note: "Confirmed via Razorpay webhook",
         changedBy: "system",
       });
+
+
+      try {
+        await sendInvoiceEmail(order);
+      } catch (emailError) {
+        console.error(
+          `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
+          emailError.message,
+        );
+      }
+
       sendWhatsappOrderConfirmation(order).catch(console.error);
 
       sendSMSOrderConfirmation(order).catch(console.error);
@@ -58,6 +71,9 @@ async function razorpayWebhook(req, res) {
         status: "failed",
         note: "Payment failed (webhook)",
         changedBy: "system",
+      });
+      await sendPaymentCancelMail(order).catch((err) => {
+        console.error("Failed to send mail", err);
       });
       await order.save();
     }
