@@ -90,7 +90,7 @@ async function createShipment(order) {
       name: i.name,
       sku: i.sku || String(i.product),
       units: i.quantity,
-      selling_price: i.unitPrice,
+      selling_price: i.originalPrice,
       discount: i.originalPrice ? i.originalPrice - i.unitPrice : 0,
       hsn: 711319,
     })),
@@ -104,7 +104,7 @@ async function createShipment(order) {
     weight: 0.3,
   };
 
-  console.log("Shiprocket payload:", JSON.stringify(payload, null, 2));
+  // console.log("Shiprocket payload:", JSON.stringify(payload, null, 2));
 
   try {
     const { data } = await client.post("/orders/create/adhoc", payload);
