@@ -299,6 +299,7 @@ const placeOrder = async (req, res) => {
       );
     }
 
+    if(paymentMethod === 'cod'){
     sendWhatsappOrderConfirmation(order).catch(console.error);
 
     sendSMSOrderConfirmation(order).catch(console.error);
@@ -306,6 +307,9 @@ const placeOrder = async (req, res) => {
     sendAdminOrderNotification(order).catch(console.error); //Mail notification to admin for new order
 
     // sendAdminWhatsApp(order).catch(console.error);
+    }
+
+
 
     return res.status(201).json({
       success: true,

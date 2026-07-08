@@ -2,6 +2,9 @@ const Order = require("../../model/Order/orderModel");
 const { createRazorpayOrder } = require("../payment/razorpayService");
 const { buildCodPaymentRecord } = require("../payment/codService");
 const { createShipment } = require("../shipping/shiprocketService");
+// const sendWhatsappOrderConfirmation = require("../notification/sendWhatsapp");
+// const sendSMSOrderConfirmation = require("../notification/sendSMS");
+// const sendAdminOrderNotification = require("../mail/sendAdminOrderNotification");
 
 // Centralised order creation — used by website checkout AND admin panel
 async function createOrder(payload) {

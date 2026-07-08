@@ -1,5 +1,8 @@
 const crypto = require("crypto");
 const Order = require("../model/Order/orderModel");
+const sendWhatsappOrderConfirmation = require("../services/notification/sendWhatsapp");
+const sendSMSOrderConfirmation = require("../services/notification/sendSMS");
+const sendAdminOrderNotification = require("../services/mail/sendAdminOrderNotification");
 
 // Mount BEFORE express.json() in app.js:
 // app.post("/webhooks/razorpay", express.raw({ type: "application/json" }), razorpayWebhook);
@@ -34,6 +37,13 @@ async function razorpayWebhook(req, res) {
         note: "Confirmed via Razorpay webhook",
         changedBy: "system",
       });
+      sendWhatsappOrderConfirmation(order).catch(console.error);
+
+      sendSMSOrderConfirmation(order).catch(console.error);
+
+      sendAdminOrderNotification(order).catch(console.error); //Mail notification to admin for new order
+
+      // sendAdminWhatsApp(order).catch(console.error);
       await order.save();
     }
   }
