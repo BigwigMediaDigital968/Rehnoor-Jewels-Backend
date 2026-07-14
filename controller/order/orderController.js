@@ -290,27 +290,37 @@ const placeOrder = async (req, res) => {
       }
     }
 
-    if(paymentMethod === 'cod'){
+    if (paymentMethod === "cod") {
+      try {
+        await sendInvoiceEmail(order);
+      } catch (emailError) {
+        console.error(
+          `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
+          emailError.message,
+        );
+      }
+
+      sendWhatsappOrderConfirmation(order).catch(console.error);
+
+      sendSMSOrderConfirmation(order).catch(console.error);
+
+      console.log("Sending admin notification...");
+
+      // sendAdminOrderNotification(order).catch((err) => {
+      //   console.log(err.response?.data);
+      //   console.log(err.message);
+      // });
 
       try {
-      await sendInvoiceEmail(order);
-    } catch (emailError) {
-      console.error(
-        `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
-        emailError.message,
-      );
+        await sendAdminOrderNotification(order);
+        console.log("Admin email sent");
+      } catch (err) {
+        console.log(err.response?.data);
+        console.log(err.message);
+      }
+
+      // sendAdminWhatsApp(order).catch(console.error);
     }
-
-    sendWhatsappOrderConfirmation(order).catch(console.error);
-
-    sendSMSOrderConfirmation(order).catch(console.error);
-
-    sendAdminOrderNotification(order).catch(console.error); //Mail notification to admin for new order
-
-    // sendAdminWhatsApp(order).catch(console.error);
-    }
-
-
 
     return res.status(201).json({
       success: true,
@@ -327,10 +337,10 @@ const placeOrder = async (req, res) => {
         },
         coupon: couponSnapshot
           ? {
-            code: couponSnapshot.code,
-            discountType: couponSnapshot.discountType,
-            discountAmount: couponSnapshot.discountAmount,
-          }
+              code: couponSnapshot.code,
+              discountType: couponSnapshot.discountType,
+              discountAmount: couponSnapshot.discountAmount,
+            }
           : null,
         paymentMethod: order.payment.method,
         razorpayOrderId: razorpayOrderId || null,
