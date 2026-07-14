@@ -1,11 +1,11 @@
 const { config } = require("dotenv");
 config();
 
-// const dns = require("node:dns");
+const dns = require("node:dns");
 
-// if (dns.getServers().length === 1 && dns.getServers()[0] === "127.0.0.1") {
-//   dns.setServers(["8.8.8.8", "8.8.4.4"]);
-// }
+if (dns.getServers().length === 1 && dns.getServers()[0] === "127.0.0.1") {
+  dns.setServers(["8.8.8.8", "8.8.4.4"]);
+}
 
 // console.log("RAZORPAY_KEY_ID:", process.env.RAZORPAY_KEY_ID);
 // console.log("RAZORPAY_KEY_SECRET:", process.env.RAZORPAY_KEY_SECRET);
