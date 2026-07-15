@@ -4,7 +4,7 @@ const shiprocketWebhook = require("../../webhooks/shiprocket.webhook");
 
 // Raw body parsing for Razorpay — MUST be before express.json()
 router.post(
-  "/razorpay",
+  "/razorpay/webhook",
   require("express").raw({ type: "application/json" }),
   razorpayWebhook,
 );

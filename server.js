@@ -37,7 +37,7 @@ const app = express();
 
 // ─── Webhook routes — raw body, BEFORE express.json() ────────────────────────
 // Razorpay signature verification breaks if JSON middleware runs first
-app.use("/webhooks", webhookRoutes);
+app.use("/api", webhookRoutes);
 
 // ─── Core Middleware ───────────────────────────
 const allowedOrigins = [
