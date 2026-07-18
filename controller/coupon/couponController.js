@@ -453,6 +453,94 @@ exports.validateCoupon = asyncHandler(async (req, res) => {
     return sendError(res, 400, "Invalid coupon code.");
   }
 });
+
+
+exports.getBestAutoApplyCoupon = asyncHandler( async (req, res) => {
+  console.log(" auto apply")
+  try {
+    const {
+      items = [],
+      subtotal = 0,
+      itemCount = 0,
+      userEmail = null,
+      userId = null,
+      isFirstOrder = false,
+    } = req.body;
+ 
+    const now = new Date();
+ 
+    // Narrow candidates at the DB level first — cheap fields only.
+    // calculateDiscount() re-checks everything else (usage limits, per-user
+    // restrictions, min order amount, etc.) since those need instance methods.
+    const candidates = await Coupon.find({
+      isAutoApply: true,
+      isActive: true,
+      isPaused: false,
+      startsAt: { $lte: now },
+      $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+    }).sort({ priority: -1 });
+
+    console.log("candidates", candidates);
+ 
+    if (candidates.length === 0) {
+      return res.json({ applied: false });
+    }
+ 
+    // Enrich items with collectionIds once — shared across all candidate checks.
+    const itemsWithCollections = await buildItemsWithCollections(items);
+ 
+    let best = null; // { coupon, result }
+ 
+    for (const coupon of candidates) {
+      const result = coupon.calculateDiscount({
+        subtotal,
+        itemCount,
+        items: itemsWithCollections,
+        userEmail,
+        userId,
+        isFirstOrder,
+      });
+ 
+      if (!result.valid) continue;
+ 
+      if (!best) {
+        best = { coupon, result };
+        continue;
+      }
+ 
+      // Priority wins first (admin-declared preference), since ₹ amounts
+      // aren't directly comparable across discount types (e.g. free_shipping
+      // always computes discountAmount: 0 but may be worth more to the
+      // customer than a small flat discount).
+      if (coupon.priority > best.coupon.priority) {
+        best = { coupon, result };
+      } else if (
+        coupon.priority === best.coupon.priority &&
+        result.discountAmount > best.result.discountAmount
+      ) {
+        best = { coupon, result };
+      }
+    }
+ 
+    if (!best) {
+      return res.json({ applied: false });
+    }
+ 
+    return res.json({
+      applied: true,
+      code: best.coupon.code,
+      discountAmount: best.result.discountAmount,
+      discountType: best.result.discountType,
+      discountValue: best.coupon.discountValue,
+      message: best.result.message,
+    });
+  } catch (err) {
+    console.error("Auto-apply coupon error:", err);
+    return res.status(500).json({ applied: false, error: "Failed to evaluate auto-apply coupons." });
+  }
+});
+
+
 // ── [POST] /api/coupons/apply ─────────────────────────────────────────────────
 // Called when order is confirmed — increments usageCount and logs the redemption
 // This should be called from your order creation flow, not standalone

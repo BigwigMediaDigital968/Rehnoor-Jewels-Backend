@@ -137,6 +137,18 @@ const couponSchema = new mongoose.Schema(
     // Soft pause without changing dates
     isPaused: { type: Boolean, default: false },
 
+    // ── Auto-Apply ───────────────────────────────────────────────────────────
+    // When true, this coupon is eligible to be applied automatically as soon
+    // as the cart qualifies — no code entry needed. Customer never has to know
+    // the code exists.
+    isAutoApply: { type: Boolean, default: false },
+
+    // Tie-breaker when multiple auto-apply coupons are simultaneously valid
+    // for the same cart. Higher priority wins over a merely-bigger discount,
+    // since ₹ comparisons across discount types (flat vs free shipping) aren't
+    // directly comparable.
+    priority: { type: Number, default: 0 },
+
     // ── Restrictions ─────────────────────────────────────────────────────────
     restrictions: { type: RestrictionSchema, default: () => ({}) },
 
@@ -176,6 +188,7 @@ const couponSchema = new mongoose.Schema(
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
 couponSchema.index({ isActive: 1, expiresAt: 1 });
+couponSchema.index({ isAutoApply: 1, isActive: 1, isPaused: 1 });
 couponSchema.index({ "restrictions.users": 1 });
 couponSchema.index({ "restrictions.emails": 1 });
 couponSchema.index({ tags: 1 });

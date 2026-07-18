@@ -58,6 +58,8 @@ couponAdminRouter.get(
   couponController.getCouponAnalytics,
 );
 
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC ROUTES — /api/coupons
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ const couponPublicRouter = express.Router();
 // Validate at checkout (no auth required, does NOT increment usage)
 couponPublicRouter.post("/validate", couponController.validateCoupon);
 
+couponPublicRouter.post("/auto-apply", couponController.getBestAutoApplyCoupon)
 // ─────────────────────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────────────────────
