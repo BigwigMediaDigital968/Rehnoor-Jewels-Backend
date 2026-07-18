@@ -1,3 +1,4 @@
+const axios = require("axios");
 const Order = require("../../model/Order/orderModel");
 const Product = require("../../model/products/productModel");
 const { createOrder } = require("../../services/order/orderService");
@@ -9,6 +10,23 @@ const sendSMSOrderConfirmation = require("../../services/notification/sendSMS");
 // const sendAdminWhatsApp = require("../../services/mail/sendAdminWhatsApp.js");
 const sendAdminOrderNotification = require("../../services/mail/sendAdminOrderNotification");
 const sendWhatsappOrderConfirmation = require("../../services/notification/sendWhatsapp.js");
+
+
+
+// Helper function to get Shiprocket Auth Token
+const getShiprocketToken = async () => {
+  try {
+    const response = await axios.post("https://apiv2.shiprocket.in/v1/external/auth/login", {
+      email: process.env.SHIPROCKET_EMAIL,
+      password: process.env.SHIPROCKET_PASSWORD
+    });
+    return response.data.token;
+  } catch (err) {
+    console.error("Failed to generate Shiprocket Auth Token:", err.message);
+    return null;
+  }
+};
+
 
 // ─── Status helper ────────────────────────────────────────────────────────────
 
@@ -187,7 +205,7 @@ const placeOrder = async (req, res) => {
 
     let subtotal = orderItems.reduce((sum, i) => sum + i.lineTotal, 0);
     let totalItemCount = orderItems.reduce((sum, i) => sum + i.quantity, 0);
-    let shippingCharge = subtotal >= 100 ? 0 : 149;
+    let shippingCharge = subtotal >= 999 ? 0 : 129; // Free shipping for orders ₹999 and above
 
     // ── Coupon validation ──────────────────────────────────────────────────
     let couponSnapshot = null;
@@ -290,27 +308,33 @@ const placeOrder = async (req, res) => {
       }
     }
 
-    if(paymentMethod === 'cod'){
+    if (paymentMethod === "cod") {
+      try {
+        await sendInvoiceEmail(order);
+      } catch (emailError) {
+        console.error(
+          `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
+          emailError.message,
+        );
+      }
+
+      sendWhatsappOrderConfirmation(order).catch(console.error);
+
+      sendSMSOrderConfirmation(order).catch(console.error);
+
+      console.log("Sending admin notification...");
 
       try {
-      await sendInvoiceEmail(order);
-    } catch (emailError) {
-      console.error(
-        `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
-        emailError.message,
-      );
+        await sendAdminOrderNotification(order);
+        console.log("Admin email sent");
+      } catch (err) {
+        console.log(err.response?.status);
+        console.log(err.response?.headers);
+        console.log(err.response?.data);
+      }
+
+      // sendAdminWhatsApp(order).catch(console.error);
     }
-
-    sendWhatsappOrderConfirmation(order).catch(console.error);
-
-    sendSMSOrderConfirmation(order).catch(console.error);
-
-    sendAdminOrderNotification(order).catch(console.error); //Mail notification to admin for new order
-
-    // sendAdminWhatsApp(order).catch(console.error);
-    }
-
-
 
     return res.status(201).json({
       success: true,
@@ -327,10 +351,10 @@ const placeOrder = async (req, res) => {
         },
         coupon: couponSnapshot
           ? {
-            code: couponSnapshot.code,
-            discountType: couponSnapshot.discountType,
-            discountAmount: couponSnapshot.discountAmount,
-          }
+              code: couponSnapshot.code,
+              discountType: couponSnapshot.discountType,
+              discountAmount: couponSnapshot.discountAmount,
+            }
           : null,
         paymentMethod: order.payment.method,
         razorpayOrderId: razorpayOrderId || null,
@@ -342,33 +366,148 @@ const placeOrder = async (req, res) => {
 };
 
 // GET /api/orders/track/:orderNumber
+// const trackOrder = async (req, res) => {
+//   try {
+//     const { orderNumber } = req.params;
+//     const { email } = req.query;
+
+//     const query = {
+//       orderNumber,
+//     };
+
+//     if (email) {
+//       query.customerEmail = email.toLowerCase();
+//     }
+
+//     const order = await Order.findOne(query).select(
+//       "orderNumber status shipping statusHistory pricing items placedAt shippedAt deliveredAt",
+//     );
+
+//     if (!order) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Order not found.",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       data: order,
+//     });
+//   } catch (error) {
+//     return handleOrderError(error, res);
+//   }
+// };
+
+
+// GET /api/orders/track/:orderNumber
 const trackOrder = async (req, res) => {
   try {
     const { orderNumber } = req.params;
     const { email } = req.query;
 
-    const query = {
-      orderNumber,
-    };
-
+    const query = { orderNumber: orderNumber.trim() };
     if (email) {
-      query.customerEmail = email.toLowerCase();
+      query.customerEmail = email.toLowerCase().trim();
     }
 
-    const order = await Order.findOne(query).select(
-      "orderNumber status shipping statusHistory pricing items placedAt shippedAt deliveredAt",
-    );
+    const order = await Order.findOne(query);
 
     if (!order) {
       return res.status(404).json({
         success: false,
-        message: "Order not found.",
+        message: "Order not found. Please verify the order number.",
       });
     }
 
+    // Dynamic Live Sync: If an AWB (tracking number) is assigned, fetch live Shiprocket data
+    const awb = order.shipping?.trackingNumber || order.shipping?.awbCode;
+    if (awb) {
+      try {
+        const token = await getShiprocketToken();
+        if (token) {
+          const trackRes = await axios.get(
+            `https://apiv2.shiprocket.in/v1/external/courier/track/awb/${awb}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          const trackingInfo = trackRes.data?.tracking_data;
+          
+          if (trackingInfo && trackingInfo.track_status === 1) {
+            const latestData = trackingInfo.shipment_track[0];
+            const scans = trackingInfo.shipment_track_activities || [];
+
+            // 1. Dynamic Status Mapping
+            let liveStatus = order.status;
+            const currentSrStatus = latestData.current_status?.toLowerCase() || "";
+
+            if (currentSrStatus.includes("delivered")) {
+              liveStatus = "delivered";
+            } else if (currentSrStatus.includes("pickup") || currentSrStatus.includes("transit") || currentSrStatus.includes("out for delivery")) {
+              liveStatus = "shipped";
+            } else if (currentSrStatus.includes("cancelled")) {
+              liveStatus = "cancelled";
+            }
+
+            // 2. Format History Milestones into unified UI timelines
+            const updatedHistory = scans.map(act => ({
+              status: act.activity || act.status,
+              location: act.location || "In Transit",
+              timestamp: new Date(act.date),
+              comment: act.activity || "Courier transit update."
+            }));
+
+            // 3. Persist latest metrics to local DB
+            order.status = liveStatus;
+            order.statusHistory = updatedHistory;
+            if (liveStatus === "shipped" && !order.shippedAt) order.shippedAt = new Date();
+            if (liveStatus === "delivered" && !order.deliveredAt) order.deliveredAt = new Date();
+            if (latestData.courier_name) order.courierName = latestData.courier_name;
+            if (latestData.edd) order.expectedDeliveryDate = new Date(latestData.edd);
+
+            await order.save();
+          }
+        }
+      } catch (syncError) {
+        // Log error silently and fallback safely to displaying last saved DB records
+        console.error("[LIVE SYNC FAILED] Fallback to standard DB records:", syncError.message);
+      }
+    }
+
+    // Construct final clean payload for your tracking dashboard page
+    const trackingResponse = {
+      orderNumber: order.orderNumber,
+      status: order.status,
+      statusHistory: order.statusHistory || [],
+      dates: {
+        placedAt: order.placedAt,
+        shippedAt: order.shippedAt,
+        deliveredAt: order.deliveredAt,
+        expectedDeliveryDate: order.expectedDeliveryDate || null,
+      },
+      customer: {
+        name: order.customerName,
+        phone: order.customerPhone,
+      },
+      shipping: {
+        address: order.shippingAddress,
+        courier: order.courierName || "Processing Package",
+        trackingNumber: order.shipping?.trackingNumber || null,
+        trackingUrl: order.shipping?.trackingUrl || null,
+      },
+      pricing: {
+        total: order.pricing.total,
+      },
+      items: order.items.map(item => ({
+        title: item.title,
+        quantity: item.quantity,
+        image: item.image || null,
+      })),
+    };
+
     return res.status(200).json({
       success: true,
-      data: order,
+      data: trackingResponse,
     });
   } catch (error) {
     return handleOrderError(error, res);

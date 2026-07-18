@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const sendPaymentCancelMail = async (order) => {
-    const htmlContent = `
+  const htmlContent = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -178,31 +178,30 @@ Rehnoor Jewels • New Delhi, India
 </html>
 `;
 
-   const res =  await axios.post(
-        "https://api.brevo.com/v3/smtp/email",
+  const res = await axios.post(
+    "https://api.brevo.com/v3/smtp/email",
+    {
+      sender: {
+        email: process.env.BREVO_SENDER_EMAIL,
+        name: "Rehnoor Jewels",
+      },
+      to: [
         {
-            sender: {
-                email: process.env.BREVO_SENDER_EMAIL,
-                name: "Rehnoor Jewels",
-            },
-            to: [
-                {
-                    email: order.customerEmail,
-                    name: order.customerName,
-                },
-            ],
-            subject: `Payment Failed for Order #${order.orderNumber}`,
-            htmlContent,
+          email: order.customerEmail,
+          name: order.customerName,
         },
-        {
-            headers: {
-                accept: "application/json",
-                "content-type": "application/json",
-                "api-key": process.env.BREVO_API_KEY,
-            },
-        },
-    );
+      ],
+      subject: `Payment Failed for Order #${order.orderNumber}`,
+      htmlContent,
+    },
+    {
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "api-key": process.env.BREVO_API_KEY,
+      },
+    },
+  );
 
-
-    console.log(res)
+  console.log(res);
 };

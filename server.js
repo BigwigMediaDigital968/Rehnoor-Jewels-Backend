@@ -1,6 +1,12 @@
 const { config } = require("dotenv");
 config();
 
+const dns = require("node:dns");
+
+if (dns.getServers().length === 1 && dns.getServers()[0] === "127.0.0.1") {
+  dns.setServers(["8.8.8.8", "8.8.4.4"]);
+}
+
 // console.log("RAZORPAY_KEY_ID:", process.env.RAZORPAY_KEY_ID);
 // console.log("RAZORPAY_KEY_SECRET:", process.env.RAZORPAY_KEY_SECRET);
 const express = require("express");
@@ -31,7 +37,7 @@ const app = express();
 
 // ─── Webhook routes — raw body, BEFORE express.json() ────────────────────────
 // Razorpay signature verification breaks if JSON middleware runs first
-app.use("/webhooks", webhookRoutes);
+app.use("/api", webhookRoutes);
 
 // ─── Core Middleware ───────────────────────────
 const allowedOrigins = [
