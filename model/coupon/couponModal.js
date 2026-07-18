@@ -99,7 +99,7 @@ const couponSchema = new mongoose.Schema(
 
     // ── Buy X Get Y (BOGO) ────────────────────────────────────────────────────
     buyXGetY: {
-      buyQuantity: { type: Number, default: 0 },
+      buyQuantity: { type: Number, default: 0 }, // 0 = no purchase requirement
       getQuantity: { type: Number, default: 0 },
       getDiscountPercent: { type: Number, default: 100 }, // 100 = free
     },
@@ -155,6 +155,19 @@ const couponSchema = new mongoose.Schema(
     },
     tags: { type: [String], default: [] }, // e.g. ["diwali", "influencer", "vip"]
     internalNote: { type: String, default: "" },
+
+    applicableProducts: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product"
+      }
+    ],
+    applicableCollections: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Collection"
+      }
+    ],
   },
   {
     timestamps: true,
@@ -162,7 +175,6 @@ const couponSchema = new mongoose.Schema(
 );
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
-// couponSchema.index({ code: 1 });
 couponSchema.index({ isActive: 1, expiresAt: 1 });
 couponSchema.index({ "restrictions.users": 1 });
 couponSchema.index({ "restrictions.emails": 1 });
@@ -197,6 +209,7 @@ couponSchema.set("toObject", { virtuals: true });
 /**
  * @param {number} subtotal      - cart subtotal (before discount)
  * @param {number} itemCount     - total qty of items in cart
+ * @param {Array} items          - array of objects [{ productId, collectionIds, price, quantity }]
  * @param {string|null} userEmail
  * @param {string|null} userId
  * @param {boolean} isFirstOrder - is this the customer's first order?
@@ -205,6 +218,7 @@ couponSchema.set("toObject", { virtuals: true });
 couponSchema.methods.calculateDiscount = function ({
   subtotal,
   itemCount = 1,
+  items = [],
   userEmail = null,
   userId = null,
   isFirstOrder = false,
@@ -317,7 +331,127 @@ couponSchema.methods.calculateDiscount = function ({
       discountAmount = Math.min(discountAmount, this.maxDiscountAmount);
     }
   } else if (this.discountType === "free_shipping") {
-    discountAmount = 0; // Handled at order level (shipping charge waived)
+    discountAmount = 0; // Handled at order level
+  } else if (this.discountType === "buy_x_get_y") {
+    const buyQty = this.buyXGetY?.buyQuantity || 0;
+    const getQty = this.buyXGetY?.getQuantity || 0;
+    const discountPct = this.buyXGetY?.getDiscountPercent || 100; // 0 or unset = fully free
+    const requiredTotalPerSet = buyQty + getQty;
+
+    // Only getQty must be > 0 — that's the thing actually being discounted.
+    // buyQty = 0 is valid: it means "no purchase requirement, just discount
+    // every qualifying set of getQty items."
+    if (getQty <= 0) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        message: "Invalid coupon setup configurations.",
+      };
+    }
+
+    // 1. Filter items into groups based on applicableProducts / applicableCollections
+    //    whitelists. Each cart item unit belongs to exactly ONE group — never both —
+    //    so a single unit can't be double-counted across two different BOGO sets.
+    const hasProductWhitelist = this.applicableProducts && this.applicableProducts.length > 0;
+    const hasCollectionWhitelist = this.applicableCollections && this.applicableCollections.length > 0;
+
+    const productIdStrs = hasProductWhitelist
+      ? this.applicableProducts.map((id) => id.toString())
+      : [];
+    const collectionIdStrs = hasCollectionWhitelist
+      ? this.applicableCollections.map((id) => id.toString())
+      : [];
+
+    const groups = new Map(); // groupKey -> price[]
+
+    items.forEach((item) => {
+      const productId = item.productId?.toString();
+
+      // Products take exclusive priority: if applicableProducts has any
+      // entries, only match against those and ignore collections entirely.
+      // Collections are only consulted when no products are configured.
+      const matchesProduct = hasProductWhitelist
+        ? productIdStrs.includes(productId)
+        : false;
+
+      const matchingCollectionId =
+        !hasProductWhitelist && hasCollectionWhitelist
+          ? item.collectionIds
+              ?.map((id) => id.toString())
+              .find((id) => collectionIdStrs.includes(id))
+          : undefined;
+      const matchesCollection = Boolean(matchingCollectionId);
+
+      // Skip items that don't qualify at all when a whitelist is configured
+      if ((hasProductWhitelist || hasCollectionWhitelist) && !matchesProduct && !matchesCollection) {
+        return;
+      }
+
+      // Product match takes priority over collection match — more specific.
+      // When NO whitelist is configured at all, the coupon is storewide —
+      // every qualifying item goes into one shared group, not split by product.
+      const noWhitelistConfigured = !hasProductWhitelist && !hasCollectionWhitelist;
+      const groupKey = matchesProduct
+        ? `product:${productId}`
+        : matchesCollection
+          ? `collection:${matchingCollectionId}`
+          : noWhitelistConfigured
+            ? "storewide"
+            : `product:${productId}`;
+
+      // Cart items use `priceNum`/`qty` in this app; fall back to
+      // `price`/`quantity` in case a different caller passes those instead.
+      const qty = Number(item.quantity ?? item.qty) || 1;
+      const price = Number(item.price ?? item.priceNum);
+      if (!Number.isFinite(price)) return; // skip malformed items rather than poisoning the group with NaN
+
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      const bucket = groups.get(groupKey);
+      for (let i = 0; i < qty; i++) bucket.push(price);
+    });
+
+    // 2. Rough gate — total qualifying pieces across all groups
+    const qualifyingItemCount = Array.from(groups.values()).reduce(
+      (acc, prices) => acc + prices.length,
+      0,
+    );
+
+    if (qualifyingItemCount < requiredTotalPerSet) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        message: `Add at least ${requiredTotalPerSet} qualifying items to use this coupon.`,
+      };
+    }
+
+    // 3. Within each group independently: sort ascending, discount the
+    //    cheapest items for every completed set of requiredTotalPerSet.
+    //    When buyQty is 0, requiredTotalPerSet === getQty, so every
+    //    complete set of getQty items within that group gets discounted.
+    let totalDiscountForBogo = 0;
+    let anySetQualified = false; // tracks whether a real set formed, independent of the ₹ amount
+    for (const prices of groups.values()) {
+      prices.sort((a, b) => a - b);
+      const setsInGroup = Math.floor(prices.length / requiredTotalPerSet);
+      if (setsInGroup > 0) anySetQualified = true;
+      const freeItemCount = setsInGroup * getQty;
+      for (let i = 0; i < freeItemCount; i++) {
+        totalDiscountForBogo += prices[i] * (discountPct / 100);
+      }
+    }
+
+    if (!anySetQualified) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        message: `Add ${requiredTotalPerSet} matching items from the same product or collection to qualify.`,
+      };
+    }
+
+    discountAmount = totalDiscountForBogo;
+    if (this.maxDiscountAmount) {
+      discountAmount = Math.min(discountAmount, this.maxDiscountAmount);
+    }
   }
 
   discountAmount = Math.round(discountAmount * 100) / 100; // round to 2dp

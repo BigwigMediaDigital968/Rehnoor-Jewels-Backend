@@ -1,6 +1,7 @@
 const Coupon = require("../../model/coupon/couponModal");
 const Order = require("../../model/Order/orderModel");
-
+const Product = require("../../model/products/productModel");
+const Collection = require("../../model/collection/collectionModel");
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +88,8 @@ exports.createCoupon = asyncHandler(async (req, res) => {
     tags: tags || [],
     internalNote: internalNote || "",
     createdBy: req.user?._id || null,
+    applicableProducts: req.body.applicableProducts || [],
+    applicableCollections: req.body.applicableCollections || [],
   });
 
   return sendSuccess(res, { coupon }, "Coupon created successfully.", 201);
@@ -357,51 +360,99 @@ exports.bulkGenerateCoupons = asyncHandler(async (req, res) => {
 // ── PUBLIC / CHECKOUT CONTROLLERS ────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+
+
+async function buildItemsWithCollections(cartItems) {
+  const productIds = cartItems.map((i) => i.productId);
+
+  const products = await Product.find(
+    { _id: { $in: productIds } },
+    { collection: 1 },
+  )
+    .populate("collection", "_id")
+    .lean();
+
+  const collectionsByProductId = new Map(
+    products.map((p) => {
+      const raw = p.collection;
+      const ids = Array.isArray(raw)
+        ? raw.map((c) => c._id?.toString()).filter(Boolean)
+        : raw?._id
+          ? [raw._id.toString()]
+          : [];
+      return [p._id.toString(), ids];
+    }),
+  );
+
+  return cartItems.map((item) => ({
+    ...item,
+    collectionIds: collectionsByProductId.get(item.productId.toString()) || [],
+  }));
+}
+
 // ── [POST] /api/coupons/validate ─────────────────────────────────────────────
 // Validate a coupon code at checkout — does NOT increment usage count
 exports.validateCoupon = asyncHandler(async (req, res) => {
-  const { code, subtotal, itemCount, email, userId } = req.body;
+  try {
+    // 1. Destructure 'items' alongside your existing properties
+    const { code, subtotal, items, email, userId } = req.body;
+    // console.log("here")
 
-  if (!code || !subtotal)
-    return sendError(res, 400, "code and subtotal are required.");
+    if (!code || !subtotal)
+      return sendError(res, 400, "code and subtotal are required.");
 
-  const coupon = await Coupon.findOne({ code: code.toUpperCase().trim() });
-  if (!coupon) return sendError(res, 404, "Invalid coupon code.");
+    const coupon = await Coupon.findOne({ code: code.toUpperCase().trim() });
+    // console.log(coupon);
+    if (!coupon) return sendError(res, 404, "Invalid coupon code.");
 
-  // Check if first order for this email
-  let isFirstOrder = false;
-  if (email) {
-    const prevOrders = await Order.countDocuments({
-      customerEmail: email.toLowerCase(),
-      status: { $nin: ["cancelled", "failed"] },
+    // Check if first order for this email
+    let isFirstOrder = false;
+    if (email) {
+      const prevOrders = await Order.countDocuments({
+        customerEmail: email.toLowerCase(),
+        status: { $nin: ["cancelled", "failed"] },
+      });
+      isFirstOrder = prevOrders === 0;
+    }
+
+    // 2. Normalize items array and calculate absolute total items in cart
+    const cartItems = Array.isArray(items) ? items : [];
+    const totalItemCount = cartItems.reduce((acc, item) => acc + (Number(item.quantity) || 1), 0);
+
+    // 3. Invoke calculation instance with the structured data array
+    const itemsWithCollections = await buildItemsWithCollections(cartItems);
+
+    const result = coupon.calculateDiscount({
+      subtotal: Number(subtotal),
+      itemCount: totalItemCount,
+      items: itemsWithCollections, // <-- Added this to match model updates
+      userEmail: email || null,
+      userId: userId || null,
+      isFirstOrder,
     });
-    isFirstOrder = prevOrders === 0;
+
+    console.log(result)
+
+    if (!result.valid) return sendError(res, 400, result.message);
+
+    return sendSuccess(res, {
+      coupon: {
+        code: coupon.code,
+        name: coupon.name,
+        description: coupon.description,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        maxDiscountAmount: coupon.maxDiscountAmount,
+      },
+      discountAmount: result.discountAmount,
+      message: result.message,
+    });
+  } catch (error) {
+    console.log(error)
+    return sendError(res, 400, "Invalid coupon code.");
   }
-
-  const result = coupon.calculateDiscount({
-    subtotal: Number(subtotal),
-    itemCount: Number(itemCount) || 1,
-    userEmail: email || null,
-    userId: userId || null,
-    isFirstOrder,
-  });
-
-  if (!result.valid) return sendError(res, 400, result.message);
-
-  return sendSuccess(res, {
-    coupon: {
-      code: coupon.code,
-      name: coupon.name,
-      description: coupon.description,
-      discountType: coupon.discountType,
-      discountValue: coupon.discountValue,
-      maxDiscountAmount: coupon.maxDiscountAmount,
-    },
-    discountAmount: result.discountAmount,
-    message: result.message,
-  });
 });
-
 // ── [POST] /api/coupons/apply ─────────────────────────────────────────────────
 // Called when order is confirmed — increments usageCount and logs the redemption
 // This should be called from your order creation flow, not standalone
