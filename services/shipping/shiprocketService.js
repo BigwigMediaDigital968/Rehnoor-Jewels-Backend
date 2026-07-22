@@ -21,37 +21,6 @@ async function createShipment(order) {
     ? order.shippingAddress
     : order.billingAddress;
 
-  // const payload = {
-  //   order_id: order.orderNumber,
-  //   order_date: new Date(order.placedAt).toISOString().split("T")[0],
-  //   pickup_location: process.env.SHIPROCKET_PICKUP_LOCATION || "Primary",
-  //   billing_customer_name: sa.fullName,
-  //   billing_last_name: "",
-  //   billing_address: sa.addressLine1,
-  //   billing_address_2: sa.addressLine2 || "",
-  //   billing_city: sa.city,
-  //   billing_pincode: sa.pincode,
-  //   billing_state: sa.state,
-  //   billing_country: sa.country || "India",
-  //   billing_email: order.customerEmail,
-  //   billing_phone: sa.phone,
-  //   shipping_is_billing: order.billingSameAsShipping ? 1 : 0,
-  //   order_items: order.items.map((i) => ({
-  //     name: i.name,
-  //     sku: i.sku || String(i.product),
-  //     units: i.quantity,
-  //     selling_price: i.unitPrice,
-  //     discount: i.originalPrice ? i.originalPrice - i.unitPrice : 0,
-  //     hsn: 711319, // ← HSN code for gold jewellery — required by Shiprocket
-  //   })),
-  //   payment_method: order.payment.method === "cod" ? "COD" : "Prepaid",
-  //   sub_total: order.pricing.subtotal,
-  //   length: 10,
-  //   breadth: 10,
-  //   height: 5,
-  //   weight: 0.3,
-  // };
-
   // Log the full payload so you can see exactly what's being sent
 
   const payload = {
@@ -97,7 +66,7 @@ async function createShipment(order) {
 
     payment_method: order.payment.method === "cod" ? "COD" : "Prepaid",
 
-    sub_total: order.pricing.subtotal,
+    sub_total: order.pricing.total,
     length: 10,
     breadth: 10,
     height: 5,
