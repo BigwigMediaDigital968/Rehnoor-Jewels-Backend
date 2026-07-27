@@ -258,26 +258,81 @@ const getPublicProducts = async (req, res) => {
     if (category) filter.category = { $regex: category, $options: "i" };
     if (tag) filter.tag = tag;
     if (featured === "true") filter.isFeatured = true;
-
     if (minPrice || maxPrice) {
       filter.price = {};
       if (minPrice) filter.price.$gte = +minPrice;
       if (maxPrice) filter.price.$lte = +maxPrice;
     }
 
-    if (search) filter.$text = { $search: search };
+    const safeSearch = search ? search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : null;
+    if (safeSearch) {
+      filter.$or = [
+        { name: { $regex: safeSearch, $options: "i" } },
+        { sku: { $regex: safeSearch, $options: "i" } },
+        { category: { $regex: safeSearch, $options: "i" } },
+        { tag: { $regex: safeSearch, $options: "i" } },
+      ];
+    }
 
     const skip = (+page - 1) * +limit;
+    let products, total;
 
-    const [products, total] = await Promise.all([
-      Product.find(filter)
-        .select("-specifications -seoTitle -seoDescription -seoKeywords")
-        .populate("collection", "name slug label")
-        .sort(sort)
-        .skip(skip)
-        .limit(+limit),
-      Product.countDocuments(filter),
-    ]);
+    if (safeSearch) {
+      const exactRegex = new RegExp(`^${safeSearch}$`, "i");
+      const startsWithRegex = new RegExp(`^${safeSearch}`, "i");
+
+      const pipeline = [
+        { $match: filter },
+        {
+          $addFields: {
+            _matchRank: {
+              $switch: {
+                branches: [
+                  { case: { $regexMatch: { input: "$name", regex: exactRegex } }, then: 0 },
+                  { case: { $regexMatch: { input: "$name", regex: startsWithRegex } }, then: 1 },
+                ],
+                default: 2,
+              },
+            },
+          },
+        },
+        { $sort: { _matchRank: 1, sortOrder: 1 } },
+        {
+          $facet: {
+            data: [
+              { $skip: skip },
+              { $limit: +limit },
+              {
+                $lookup: {
+                  from: "collections",
+                  localField: "collection",
+                  foreignField: "_id",
+                  as: "collection",
+                  pipeline: [{ $project: { name: 1, slug: 1, label: 1 } }],
+                },
+              },
+              { $unwind: { path: "$collection", preserveNullAndEmptyArrays: true } },
+              { $project: { specifications: 0, seoTitle: 0, seoDescription: 0, seoKeywords: 0 } },
+            ],
+            totalCount: [{ $count: "count" }],
+          },
+        },
+      ];
+
+      const result = await Product.aggregate(pipeline);
+      products = result[0].data;
+      total = result[0].totalCount[0]?.count || 0;
+    } else {
+      [products, total] = await Promise.all([
+        Product.find(filter)
+          .select("-specifications -seoTitle -seoDescription -seoKeywords")
+          .populate("collection", "name slug label")
+          .sort(sort)
+          .skip(skip)
+          .limit(+limit),
+        Product.countDocuments(filter),
+      ]);
+    }
 
     return res.status(200).json({
       success: true,
