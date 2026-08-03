@@ -130,16 +130,51 @@ const getPublishedBlogBySlug = async (req, res) => {
 };
 
 // GET /api/blogs/categories — distinct categories for nav/filter
+// const getBlogCategories = async (req, res) => {
+//   try {
+//     const categories = await Blog.distinct("category", {
+//       status: "published",
+//       category: { $ne: "" },
+//     });
+//     return res.status(200).json({ success: true, data: categories });
+//   } catch (error) {
+//     console.error("getBlogCategories error:", error);
+//     return res.status(500).json({ success: false, message: "Server error." });
+//   }
+// };
+
+
 const getBlogCategories = async (req, res) => {
   try {
-    const categories = await Blog.distinct("category", {
-      status: "published",
-      category: { $ne: "" },
+    const categories = await Blog.find(
+      {
+        status: "published",
+        category: { $ne: "" },
+      },
+      "category"
+    );
+
+    const uniqueCategories = [
+      ...new Set(
+        categories.flatMap((blog) =>
+          blog.category
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean)
+        )
+      ),
+    ];
+
+    return res.status(200).json({
+      success: true,
+      data: uniqueCategories,
     });
-    return res.status(200).json({ success: true, data: categories });
   } catch (error) {
     console.error("getBlogCategories error:", error);
-    return res.status(500).json({ success: false, message: "Server error." });
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+    });
   }
 };
 
