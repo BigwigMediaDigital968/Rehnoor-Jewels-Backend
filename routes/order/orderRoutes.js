@@ -15,6 +15,10 @@ const {
   adminUpdateOrder,
   adminDeleteOrder,
   adminCreateOrder,
+  adminTrashOrder,
+  adminRestoreOrder,
+  adminPermanentDeleteOrder,
+  adminGetTrashedOrders,
 } = require("../../controller/order/orderController");
 
 const { protect, adminOnly } = require("../../middleware/Authmiddleware");
@@ -25,6 +29,9 @@ const { protect, adminOnly } = require("../../middleware/Authmiddleware");
 
 // POST  /api/orders                           → place order from website
 router.post("/", placeOrder);
+
+// Trash list route
+router.get("/admin/trash", adminGetTrashedOrders);
 
 // GET   /api/orders/track/:orderNumber        → track by order number + email query param
 router.get("/track/:orderNumber", trackOrder);
@@ -69,5 +76,14 @@ router.patch("/admin/:id/shipping", protect, adminOnly, adminUpdateShipping);
 
 // DELETE /api/admin/orders/:id                → delete order (test/dev only)
 router.delete("/admin/:id", protect, adminOnly, adminDeleteOrder);
+
+// Move to trash (Soft Delete)
+router.patch("/admin/:id/trash", adminTrashOrder);
+
+// Restore from trash
+router.patch("/admin/:id/restore", adminRestoreOrder);
+
+// Permanent Delete
+router.delete("/admin/:id/permanent", adminPermanentDeleteOrder);
 
 module.exports = router;

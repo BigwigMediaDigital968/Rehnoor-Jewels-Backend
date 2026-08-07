@@ -11,22 +11,22 @@ const sendSMSOrderConfirmation = require("../../services/notification/sendSMS");
 const sendAdminOrderNotification = require("../../services/mail/sendAdminOrderNotification");
 const sendWhatsappOrderConfirmation = require("../../services/notification/sendWhatsapp.js");
 
-
-
 // Helper function to get Shiprocket Auth Token
 const getShiprocketToken = async () => {
   try {
-    const response = await axios.post("https://apiv2.shiprocket.in/v1/external/auth/login", {
-      email: process.env.SHIPROCKET_EMAIL,
-      password: process.env.SHIPROCKET_PASSWORD
-    });
+    const response = await axios.post(
+      "https://apiv2.shiprocket.in/v1/external/auth/login",
+      {
+        email: process.env.SHIPROCKET_EMAIL,
+        password: process.env.SHIPROCKET_PASSWORD,
+      },
+    );
     return response.data.token;
   } catch (err) {
     console.error("Failed to generate Shiprocket Auth Token:", err.message);
     return null;
   }
 };
-
 
 // ─── Status helper ────────────────────────────────────────────────────────────
 
@@ -366,41 +366,6 @@ const placeOrder = async (req, res) => {
 };
 
 // GET /api/orders/track/:orderNumber
-// const trackOrder = async (req, res) => {
-//   try {
-//     const { orderNumber } = req.params;
-//     const { email } = req.query;
-
-//     const query = {
-//       orderNumber,
-//     };
-
-//     if (email) {
-//       query.customerEmail = email.toLowerCase();
-//     }
-
-//     const order = await Order.findOne(query).select(
-//       "orderNumber status shipping statusHistory pricing items placedAt shippedAt deliveredAt",
-//     );
-
-//     if (!order) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Order not found.",
-//       });
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       data: order,
-//     });
-//   } catch (error) {
-//     return handleOrderError(error, res);
-//   }
-// };
-
-
-// GET /api/orders/track/:orderNumber
 const trackOrder = async (req, res) => {
   try {
     const { orderNumber } = req.params;
@@ -428,49 +393,61 @@ const trackOrder = async (req, res) => {
         if (token) {
           const trackRes = await axios.get(
             `https://apiv2.shiprocket.in/v1/external/courier/track/awb/${awb}`,
-            { headers: { Authorization: `Bearer ${token}` } }
+            { headers: { Authorization: `Bearer ${token}` } },
           );
 
           const trackingInfo = trackRes.data?.tracking_data;
-          
+
           if (trackingInfo && trackingInfo.track_status === 1) {
             const latestData = trackingInfo.shipment_track[0];
             const scans = trackingInfo.shipment_track_activities || [];
 
             // 1. Dynamic Status Mapping
             let liveStatus = order.status;
-            const currentSrStatus = latestData.current_status?.toLowerCase() || "";
+            const currentSrStatus =
+              latestData.current_status?.toLowerCase() || "";
 
             if (currentSrStatus.includes("delivered")) {
               liveStatus = "delivered";
-            } else if (currentSrStatus.includes("pickup") || currentSrStatus.includes("transit") || currentSrStatus.includes("out for delivery")) {
+            } else if (
+              currentSrStatus.includes("pickup") ||
+              currentSrStatus.includes("transit") ||
+              currentSrStatus.includes("out for delivery")
+            ) {
               liveStatus = "shipped";
             } else if (currentSrStatus.includes("cancelled")) {
               liveStatus = "cancelled";
             }
 
             // 2. Format History Milestones into unified UI timelines
-            const updatedHistory = scans.map(act => ({
+            const updatedHistory = scans.map((act) => ({
               status: act.activity || act.status,
               location: act.location || "In Transit",
               timestamp: new Date(act.date),
-              comment: act.activity || "Courier transit update."
+              comment: act.activity || "Courier transit update.",
             }));
 
             // 3. Persist latest metrics to local DB
             order.status = liveStatus;
             order.statusHistory = updatedHistory;
-            if (liveStatus === "shipped" && !order.shippedAt) order.shippedAt = new Date();
-            if (liveStatus === "delivered" && !order.deliveredAt) order.deliveredAt = new Date();
-            if (latestData.courier_name) order.courierName = latestData.courier_name;
-            if (latestData.edd) order.expectedDeliveryDate = new Date(latestData.edd);
+            if (liveStatus === "shipped" && !order.shippedAt)
+              order.shippedAt = new Date();
+            if (liveStatus === "delivered" && !order.deliveredAt)
+              order.deliveredAt = new Date();
+            if (latestData.courier_name)
+              order.courierName = latestData.courier_name;
+            if (latestData.edd)
+              order.expectedDeliveryDate = new Date(latestData.edd);
 
             await order.save();
           }
         }
       } catch (syncError) {
         // Log error silently and fallback safely to displaying last saved DB records
-        console.error("[LIVE SYNC FAILED] Fallback to standard DB records:", syncError.message);
+        console.error(
+          "[LIVE SYNC FAILED] Fallback to standard DB records:",
+          syncError.message,
+        );
       }
     }
 
@@ -498,7 +475,7 @@ const trackOrder = async (req, res) => {
       pricing: {
         total: order.pricing.total,
       },
-      items: order.items.map(item => ({
+      items: order.items.map((item) => ({
         title: item.title,
         quantity: item.quantity,
         image: item.image || null,
@@ -604,7 +581,10 @@ const adminGetAllOrders = async (req, res) => {
       sort = "-placedAt",
     } = req.query;
 
-    const filter = {};
+    // const filter = {};
+    const filter = {
+      isTrashed: { $ne: true },
+    };
     if (status) filter.status = status;
     if (paymentStatus) filter["payment.status"] = paymentStatus;
     if (paymentMethod) filter["payment.method"] = paymentMethod;
@@ -1015,6 +995,121 @@ const adminCreateOrder = async (req, res) => {
   }
 };
 
+// 1. SOFT DELETE (Move to Trash)
+// Instead of findByIdAndDelete, update isTrashed and set trashedAt
+const adminTrashOrder = async (req, res) => {
+  try {
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          isTrashed: true,
+          trashedAt: new Date(),
+        },
+      },
+      { new: true },
+    );
+
+    if (!order) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found." });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Order moved to trash. It will be permanently deleted after 30 days.",
+      data: order,
+    });
+  } catch (error) {
+    return handleOrderError(error, res);
+  }
+};
+
+// 2. RESTORE ORDER (Recover from Trash)
+const adminRestoreOrder = async (req, res) => {
+  try {
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          isTrashed: false,
+          trashedAt: null, // Removing trashedAt stops the TTL countdown
+        },
+      },
+      { new: true },
+    );
+
+    if (!order) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found." });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Order restored successfully.",
+      data: order,
+    });
+  } catch (error) {
+    return handleOrderError(error, res);
+  }
+};
+
+// 3. PERMANENT DELETE (Hard Delete from Trash)
+const adminPermanentDeleteOrder = async (req, res) => {
+  try {
+    const order = await Order.findOneAndDelete({
+      _id: req.params.id,
+      isTrashed: true, // Safety check: only allow hard deleting orders that are in trash
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found in trash.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Order permanently deleted.",
+    });
+  } catch (error) {
+    return handleOrderError(error, res);
+  }
+};
+
+// 4. GET TRASHED ORDERS LIST
+const adminGetTrashedOrders = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
+
+    const query = { isTrashed: true };
+
+    const total = await Order.countDocuments(query);
+    const orders = await Order.find(query)
+      .sort({ trashedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    return res.status(200).json({
+      success: true,
+      data: orders,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    return handleOrderError(error, res);
+  }
+};
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -1031,4 +1126,8 @@ module.exports = {
   adminUpdateOrder,
   adminDeleteOrder,
   adminCreateOrder,
+  adminTrashOrder,
+  adminRestoreOrder,
+  adminPermanentDeleteOrder,
+  adminGetTrashedOrders,
 };

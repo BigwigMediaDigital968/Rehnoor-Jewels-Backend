@@ -275,6 +275,9 @@ const orderSchema = new mongoose.Schema(
     },
     ipAddress: { type: String, default: null },
     userAgent: { type: String, default: "" },
+
+    isTrashed: { type: Boolean, default: false },
+    trashedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
@@ -285,6 +288,16 @@ orderSchema.index({ status: 1, placedAt: -1 });
 orderSchema.index({ customer: 1, placedAt: -1 });
 orderSchema.index({ "payment.status": 1 });
 orderSchema.index({ "shipping.trackingNumber": 1 });
+
+// NEW INDEXES FOR TRASH FUNCTIONALITY:
+// 1. Index to quickly query trashed vs active orders
+orderSchema.index({ isTrashed: 1, placedAt: -1 });
+
+// 2. TTL Index: Automatically deletes documents 30 days (2,592,000 seconds) after `trashedAt` is set
+orderSchema.index(
+  { trashedAt: 1 },
+  { expireAfterSeconds: 2592000, partialFilterExpression: { isTrashed: true } },
+);
 
 // ─── Pre-save: auto-generate orderNumber ──────────────────────────────────────
 orderSchema.pre("save", async function () {
