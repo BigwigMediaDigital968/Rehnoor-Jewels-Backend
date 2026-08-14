@@ -17,10 +17,24 @@ async function getShiprocketToken() {
   if (record && now - record.generatedAt.getTime() < 23 * 60 * 60 * 1000) {
     return record.token;
   }
-  const { data } = await axios.post(`${SR_BASE}/auth/login`, {
+  // const { data } = await axios.post(`${SR_BASE}/auth/login`, {
+  //   email: process.env.SHIPROCKET_EMAIL,
+  //   password: process.env.SHIPROCKET_PASSWORD,
+  // });
+
+  const { data } = await axios
+  .post(`${SR_BASE}/auth/login`, {
     email: process.env.SHIPROCKET_EMAIL,
     password: process.env.SHIPROCKET_PASSWORD,
+  })
+  .catch((err) => {
+    console.error(
+      "Shiprocket login failed:",
+      JSON.stringify(err.response?.data, null, 2),
+    );
+    throw err;
   });
+  
   if (!record) record = new ShiprocketToken();
   record.token = data.token;
   record.generatedAt = new Date();
