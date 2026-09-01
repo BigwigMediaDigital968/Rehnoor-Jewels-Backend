@@ -29,6 +29,7 @@ const {
 const webhookRoutes = require("./routes/webhooks/webhook.routes"); // ← MUST be first
 const paymentRoutes = require("./routes/payment/payment.routes");
 const shippingRoutes = require("./routes/shipping/shipping.routes");
+const shiprocketCatalogRoutes = require("./routes/shiprocket/shiprocketRoutes");
 
 // Connect to MongoDB
 connectDB();
@@ -89,6 +90,7 @@ app.use("/api/coupons", couponPublicRouter);
 
 app.use("/api/payments", paymentRoutes); // POST /api/payments/razorpay/verify
 app.use("/api/shipping", shippingRoutes); // admin shipment + public tracking
+app.use("/api", shiprocketCatalogRoutes);
 
 // ─── 404 Handler ──────────────────────────────
 app.use((req, res) => {
