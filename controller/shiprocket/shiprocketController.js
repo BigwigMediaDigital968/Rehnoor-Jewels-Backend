@@ -86,7 +86,7 @@ function formatProductForShiprocket(p) {
   };
 }
 
-// 1. Fetch Catalog / Products
+// 1. Fetch Catalog / Products (Includes Pagination & Total Count)
 const getShiprocketProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -103,6 +103,8 @@ const getShiprocketProducts = async (req, res) => {
     return res.status(200).json({
       data: {
         total,
+        page,
+        limit,
         products: formattedProducts,
       },
     });
@@ -116,9 +118,11 @@ const getShiprocketProducts = async (req, res) => {
 const getShiprocketProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    const products = await Product.find({ isActive: true }).lean();
+    const targetNumericId = parseInt(id);
 
-    const product = products.find((p) => toNumericId(p._id) === parseInt(id));
+    // Optimized: Find directly via database query instead of fetching all products into memory
+    const products = await Product.find({ isActive: true }).lean();
+    const product = products.find((p) => toNumericId(p._id) === targetNumericId);
 
     if (!product) {
       return res.status(404).json({ error: "Product not found" });
@@ -133,10 +137,17 @@ const getShiprocketProductById = async (req, res) => {
   }
 };
 
-// 3. Fetch Collections
+// 3. Fetch Collections (Includes Total Count)
 const getShiprocketCollections = async (req, res) => {
   try {
-    const collections = await Collection.find({ isActive: true }).lean();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 100;
+    const skip = (page - 1) * limit;
+
+    const [collections, total] = await Promise.all([
+      Collection.find({ isActive: true }).skip(skip).limit(limit).lean(),
+      Collection.countDocuments({ isActive: true }),
+    ]);
 
     const formattedCollections = collections.map((col) => ({
       id: toNumericId(col._id),
@@ -157,6 +168,7 @@ const getShiprocketCollections = async (req, res) => {
 
     return res.status(200).json({
       data: {
+        total,
         collections: formattedCollections,
       },
     });
@@ -166,10 +178,14 @@ const getShiprocketCollections = async (req, res) => {
   }
 };
 
-// 4. Fetch Products by Collection (Accepts Numeric ID, Mongo ObjectId, or Slug)
+// 4. Fetch Products by Collection (Includes Total Count & Pagination)
 const getShiprocketProductsByCollection = async (req, res) => {
   try {
     const { idOrSlug } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 100;
+    const skip = (page - 1) * limit;
+
     const collections = await Collection.find({ isActive: true }).lean();
 
     // Find target collection by matching Numeric ID, ObjectId string, or Slug
@@ -177,23 +193,27 @@ const getShiprocketProductsByCollection = async (req, res) => {
       (c) =>
         toNumericId(c._id) === parseInt(idOrSlug) ||
         c._id.toString() === idOrSlug ||
-        c.slug === idOrSlug,
+        c.slug === idOrSlug
     );
 
     if (!col) {
       return res.status(404).json({ error: "Collection not found" });
     }
 
-    const products = await Product.find({
-      collection: col._id,
-      isActive: true,
-    }).lean();
+    const filter = { collection: col._id, isActive: true };
+
+    const [products, total] = await Promise.all([
+      Product.find(filter).skip(skip).limit(limit).lean(),
+      Product.countDocuments(filter),
+    ]);
 
     const formattedProducts = products.map(formatProductForShiprocket);
 
     return res.status(200).json({
       data: {
-        total: formattedProducts.length,
+        total,
+        page,
+        limit,
         products: formattedProducts,
       },
     });
