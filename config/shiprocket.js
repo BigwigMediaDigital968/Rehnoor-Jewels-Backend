@@ -17,10 +17,6 @@ async function getShiprocketToken() {
   if (record && now - record.generatedAt.getTime() < 23 * 60 * 60 * 1000) {
     return record.token;
   }
-  // const { data } = await axios.post(`${SR_BASE}/auth/login`, {
-  //   email: process.env.SHIPROCKET_EMAIL,
-  //   password: process.env.SHIPROCKET_PASSWORD,
-  // });
 
   const { data } = await axios
   .post(`${SR_BASE}/auth/login`, {

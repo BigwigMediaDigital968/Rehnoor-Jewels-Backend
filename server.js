@@ -90,7 +90,7 @@ app.use("/api/coupons", couponPublicRouter);
 
 app.use("/api/payments", paymentRoutes); // POST /api/payments/razorpay/verify
 app.use("/api/shipping", shippingRoutes); // admin shipment + public tracking
-app.use("/api", shiprocketCatalogRoutes);
+app.use("/api/shiprocket", shiprocketCatalogRoutes);
 
 // ─── 404 Handler ──────────────────────────────
 app.use((req, res) => {
