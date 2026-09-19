@@ -18,9 +18,22 @@ router.get("/products/:id", getShiprocketProductById);
 router.get("/collections", getShiprocketCollections);
 router.get("/collections/:idOrSlug", getShiprocketProductsByCollection);
 
-// Checkout Token & Webhooks
+// Checkout Token
 router.post("/access-token", generateCheckoutToken);
-router.post("/webhook/order", handleOrderWebhook);
-router.post("/webhook/abandoned-checkout", handleAbandonedCheckoutWebhook);
+
+// Webhooks.
+// The Shiprocket Checkout dashboard (Settings → Webhooks) is configured with
+// `/api/shiprocket/order-webhook`, which did not match the `/webhook/order`
+// path this router originally exposed — every delivery hit the 404 handler.
+// Both spellings are registered so the dashboard keeps working whichever
+// convention is configured there.
+router.post(
+  ["/order-webhook", "/webhook/order"],
+  handleOrderWebhook,
+);
+router.post(
+  ["/abandoned-cart-webhook", "/webhook/abandoned-checkout"],
+  handleAbandonedCheckoutWebhook,
+);
 
 module.exports = router;

@@ -734,7 +734,10 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
     customerEmail,
     customerPhone: formattedPhone,
     createdAt: orderData.created_at || new Date(),
-    status: orderData.status || "Confirmed",
+    // Shiprocket sends "SUCCESS" here; show customers something readable.
+    status: /^success$/i.test(String(orderData.status || ""))
+      ? "Confirmed"
+      : orderData.status || "Confirmed",
     items,
     pricing: {
       subtotal,
@@ -761,6 +764,65 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
         orderData.country || orderData.shipping_address?.country || "India",
     },
   };
+}
+
+// The order webhook payload is minimal — per the integration guide it carries
+// only order_id, cart_data.items[{variant_id, quantity}], status, phone, email,
+// payment_type and total_amount_payable. No item names, no prices, no address.
+// Treat it as thin whenever the line items carry no descriptive fields or the
+// shipping address is absent.
+function isThinShiprocketPayload(orderData) {
+  const items = orderData.cart_data?.items || orderData.line_items || [];
+  const itemsLackDetail =
+    !items.length || items.every((i) => !i.name && !i.title && !i.price);
+  const hasAddress = Boolean(
+    orderData.shipping_address?.address1 || orderData.address_line1,
+  );
+  return itemsLackDetail || !hasAddress;
+}
+
+// Fetch Order Details API (integration guide §6) — the documented way to turn
+// an order_id into the full cart, payment and shipping detail. Returns null on
+// any failure so the caller can carry on with whatever the webhook gave us.
+async function fetchShiprocketOrderDetails(orderId) {
+  const apiKey = process.env.SHIPROCKET_API_KEY;
+  const secretKey = process.env.SHIPROCKET_SECRET_KEY;
+
+  if (!apiKey || !secretKey) {
+    console.warn(
+      "[Shiprocket Order Details] Skipped — SHIPROCKET_API_KEY / SHIPROCKET_SECRET_KEY not configured",
+    );
+    return null;
+  }
+
+  const url =
+    process.env.SHIPROCKET_ORDER_DETAILS_URL ||
+    "https://checkout-api.shiprocket.com/api/v1/custom-platform-order/details";
+
+  const rawBody = JSON.stringify({
+    order_id: String(orderId),
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    const { data } = await axios.post(url, rawBody, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": apiKey,
+        "X-Api-HMAC-SHA256": generateShiprocketHMAC(rawBody, secretKey),
+      },
+      timeout: 10000,
+    });
+    const details = data?.result || data?.data || data;
+    console.log(`[Shiprocket Order Details] Enriched ${orderId}`);
+    return details && typeof details === "object" ? details : null;
+  } catch (err) {
+    console.error(
+      `[Shiprocket Order Details] Fetch failed for ${orderId}:`,
+      err.response?.data || err.message,
+    );
+    return null;
+  }
 }
 
 // Best-effort match of a Shiprocket line item back to a local product.
@@ -843,7 +905,7 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
 const handleOrderWebhook = async (req, res) => {
   console.log("🚀 [WEBHOOK HIT] Received payload from Shiprocket:", req.body);
   try {
-    const orderData = req.body;
+    let orderData = req.body;
 
     if (!orderData || (!orderData.order_id && !orderData.order_number)) {
       return res
@@ -854,6 +916,26 @@ const handleOrderWebhook = async (req, res) => {
     const shiprocketOrderId = String(
       orderData.order_id || orderData.order_number,
     );
+
+    // 0. The webhook payload alone is too sparse to build an invoice or a
+    //    valid Order from, so pull the full record when anything is missing.
+    if (isThinShiprocketPayload(orderData)) {
+      console.log(
+        `[Shiprocket Webhook] Thin payload for ${shiprocketOrderId} — fetching full order details`,
+      );
+      const details = await fetchShiprocketOrderDetails(shiprocketOrderId);
+      if (details) {
+        orderData = {
+          ...orderData,
+          ...details,
+          cart_data: details.cart_data || orderData.cart_data,
+          shipping_address: {
+            ...(orderData.shipping_address || {}),
+            ...(details.shipping_address || {}),
+          },
+        };
+      }
+    }
 
     // 1. Normalise the payload FIRST. Everything below — persistence, Engage
     //    sync, notifications — is independent and individually guarded, so a
