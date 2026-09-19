@@ -1,6 +1,6 @@
-import axios from "axios";
+const axios = require("axios");
 
-export const sendPaymentCancelMail = async (order) => {
+const sendPaymentCancelMail = async (order) => {
   const htmlContent = `
 <!DOCTYPE html>
 <html>
@@ -203,5 +203,7 @@ Rehnoor Jewels • New Delhi, India
     },
   );
 
-  console.log(res);
+  console.log(`[Payment Cancel Mail] sent for ${order.orderNumber}`, res.status);
 };
+
+module.exports = { sendPaymentCancelMail };

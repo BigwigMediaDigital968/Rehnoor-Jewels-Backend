@@ -2,7 +2,17 @@ const Order = require("../model/Order/orderModel");
 
 // Shiprocket sends status updates here — configure the URL in your Shiprocket dashboard
 async function shiprocketWebhook(req, res) {
-  const { awb, current_status, shipment_id, delivered_date } = req.body;
+  try {
+    await handleTrackingUpdate(req, res);
+  } catch (err) {
+    console.error("[Shiprocket Tracking Webhook Error]:", err);
+    // 200 so Shiprocket stops retrying a payload we cannot process.
+    if (!res.headersSent) res.status(200).json({ received: false });
+  }
+}
+
+async function handleTrackingUpdate(req, res) {
+  const { awb, current_status, shipment_id, delivered_date } = req.body || {};
 
   const order = await Order.findOne({
     $or: [

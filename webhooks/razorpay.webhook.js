@@ -1,10 +1,7 @@
 const crypto = require("crypto");
 const Order = require("../model/Order/orderModel");
-const sendWhatsappOrderConfirmation = require("../services/notification/sendWhatsapp.js");
-const sendSMSOrderConfirmation = require("../services/notification/sendSMS");
-const sendAdminOrderNotification = require("../services/mail/sendAdminOrderNotification");
 const { sendPaymentCancelMail } = require("../services/notification/orderMail");
-const sendInvoiceEmail = require("../services/mail/sendInvoiceEmail");
+const dispatchOrderNotifications = require("../services/notification/dispatchOrderNotifications");
 
 // Mount BEFORE express.json() in app.js:
 // app.post("/webhooks/razorpay", express.raw({ type: "application/json" }), razorpayWebhook);
@@ -26,38 +23,29 @@ async function razorpayWebhook(req, res) {
   if (event.event === "payment.captured") {
     const { order_id, id: payment_id, amount } = event.payload.payment.entity;
     const order = await Order.findOne({ "payment.gatewayOrderId": order_id });
-    if (order && order.payment.status !== "paid") {
-      order.payment.status = "paid";
-      order.payment.gatewayPaymentId = payment_id;
-      order.payment.amountPaid = amount / 100;
-      order.payment.paidAt = new Date();
-      order.payment.gatewayResponse = event.payload;
-      order.status = "confirmed";
-      order.confirmedAt = new Date();
-      order.statusHistory.push({
-        status: "confirmed",
-        note: "Confirmed via Razorpay webhook",
-        changedBy: "system",
-      });
-
-
-      try {
-        await sendInvoiceEmail(order);
-      } catch (emailError) {
-        console.error(
-          `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
-          emailError.message,
-        );
+    if (order) {
+      // Only rewrite payment state on the first capture. The frontend verify
+      // call usually gets here first and has already marked the order paid.
+      if (order.payment.status !== "paid") {
+        order.payment.status = "paid";
+        order.payment.gatewayPaymentId = payment_id;
+        order.payment.amountPaid = amount / 100;
+        order.payment.paidAt = new Date();
+        order.payment.gatewayResponse = event.payload;
+        order.status = "confirmed";
+        order.confirmedAt = new Date();
+        order.statusHistory.push({
+          status: "confirmed",
+          note: "Confirmed via Razorpay webhook",
+          changedBy: "system",
+        });
+        await order.save();
       }
 
-      sendWhatsappOrderConfirmation(order).catch(console.error);
-
-      sendSMSOrderConfirmation(order).catch(console.error);
-
-      sendAdminOrderNotification(order).catch(console.error); //Mail notification to admin for new order
-
-      // sendAdminWhatsApp(order).catch(console.error);
-      await order.save();
+      // Runs unconditionally — previously this sat inside the "not yet paid"
+      // branch, so whenever verify won the race the customer got nothing.
+      // dispatchOrderNotifications is idempotent via notificationsSentAt.
+      await dispatchOrderNotifications(order, { markOn: order });
     }
   }
 

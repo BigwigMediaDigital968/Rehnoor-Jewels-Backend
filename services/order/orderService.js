@@ -2,9 +2,7 @@ const Order = require("../../model/Order/orderModel");
 const { createRazorpayOrder } = require("../payment/razorpayService");
 const { buildCodPaymentRecord } = require("../payment/codService");
 const { createShipment } = require("../shipping/shiprocketService");
-// const sendWhatsappOrderConfirmation = require("../notification/sendWhatsapp");
-// const sendSMSOrderConfirmation = require("../notification/sendSMS");
-// const sendAdminOrderNotification = require("../mail/sendAdminOrderNotification");
+const dispatchOrderNotifications = require("../notification/dispatchOrderNotifications");
 
 // Centralised order creation — used by website checkout AND admin panel
 async function createOrder(payload) {
@@ -105,6 +103,12 @@ async function markOrderPaid(
   });
 
   await order.save();
+
+  // This runs from the frontend verify call, which almost always beats the
+  // Razorpay webhook. Notifications must fire here too — the webhook's own
+  // dispatch is deduped via notificationsSentAt, so exactly one wins.
+  await dispatchOrderNotifications(order, { markOn: order });
+
   return order;
 }
 

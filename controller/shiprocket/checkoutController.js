@@ -547,11 +547,7 @@ const Order = require("../../model/Order/orderModel");
 const Product = require("../../model/products/productModel");
 const toNumericId = require("../../utils/toNumericId");
 
-// Import Notification Services
-const sendInvoiceEmail = require("../../services/mail/sendInvoiceEmail");
-const sendSMSOrderConfirmation = require("../../services/notification/sendSMS");
-const sendAdminOrderNotification = require("../../services/mail/sendAdminOrderNotification");
-const sendWhatsappOrderConfirmation = require("../../services/notification/sendWhatsapp.js");
+const dispatchOrderNotifications = require("../../services/notification/dispatchOrderNotifications");
 
 function generateShiprocketHMAC(rawStringPayload, secret) {
   return crypto
@@ -567,6 +563,23 @@ const generateCheckoutToken = async (req, res) => {
 
     if (!items || !items.length) {
       return res.status(400).json({ error: "Cart items are required" });
+    }
+
+    // Fail loudly instead of throwing an opaque "key argument must be of type
+    // string" from createHmac further down.
+    const missingEnv = [
+      "SHIPROCKET_API_KEY",
+      "SHIPROCKET_SECRET_KEY",
+    ].filter((key) => !process.env[key]);
+
+    if (missingEnv.length) {
+      console.error(
+        `[Shiprocket Access Token] Missing env vars: ${missingEnv.join(", ")}`,
+      );
+      return res.status(500).json({
+        error: "Shiprocket checkout is not configured",
+        details: `Missing environment variables: ${missingEnv.join(", ")}`,
+      });
     }
 
     const sellerDomain = process.env.SELLER_DOMAIN || "www.rehnoorjewels.com";
@@ -750,6 +763,83 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
   };
 }
 
+// Best-effort match of a Shiprocket line item back to a local product.
+// Returns null rather than throwing — an unmatched item is still a valid
+// order item (Order.items[].product allows null).
+async function resolveProductIdBySku(sku) {
+  if (!sku) return null;
+  try {
+    const product = await Product.findOne({
+      $or: [{ sku }, { "variants.sku": sku }],
+    })
+      .select("_id")
+      .lean();
+    return product?._id || null;
+  } catch {
+    return null;
+  }
+}
+
+// Maps the normalised notification payload onto a schema-valid Order document.
+async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
+  const rawMethod = String(
+    orderData.payment_type || orderData.payment_mode || "prepaid",
+  ).toLowerCase();
+  const isCod = rawMethod.includes("cod") || rawMethod.includes("cash");
+
+  const rawPaymentStatus = String(
+    orderData.financial_status || orderData.status || "",
+  ).toLowerCase();
+  const isPaid = /paid|captured|success|complete/.test(rawPaymentStatus);
+
+  const items = await Promise.all(
+    np.items.map(async (item) => ({
+      product: await resolveProductIdBySku(item.sku),
+      name: item.name,
+      slug: item.slug,
+      sku: item.sku,
+      image: item.image,
+      unitPrice: item.unitPrice,
+      quantity: item.quantity,
+      lineTotal: item.lineTotal,
+    })),
+  );
+
+  return {
+    shiprocketOrderId,
+    rawShiprocketData: orderData,
+    customerName: np.customerName,
+    customerEmail: np.customerEmail,
+    customerPhone: np.customerPhone,
+    items,
+    shippingAddress: {
+      fullName: np.shippingAddress.fullName,
+      phone: np.customerPhone,
+      addressLine1: np.shippingAddress.addressLine1,
+      addressLine2: np.shippingAddress.addressLine2,
+      city: np.shippingAddress.city,
+      state: np.shippingAddress.state,
+      pincode: np.shippingAddress.pincode,
+      country: np.shippingAddress.country,
+    },
+    pricing: {
+      subtotal: np.pricing.subtotal || np.pricing.total,
+      shippingCharge: np.pricing.shippingCharge,
+      discountAmount: np.pricing.discountAmount,
+      total: np.pricing.total,
+    },
+    payment: {
+      method: isCod ? "cod" : "shiprocket",
+      status: isCod ? "pending" : isPaid ? "paid" : "initiated",
+      amountPaid: isCod || !isPaid ? 0 : np.pricing.total,
+      paidAt: !isCod && isPaid ? new Date() : null,
+    },
+    status: "confirmed",
+    confirmedAt: new Date(),
+    source: "shiprocket",
+  };
+}
+
 const handleOrderWebhook = async (req, res) => {
   console.log("🚀 [WEBHOOK HIT] Received payload from Shiprocket:", req.body);
   try {
@@ -761,25 +851,55 @@ const handleOrderWebhook = async (req, res) => {
         .json({ status: "FAILED", message: "Invalid payload" });
     }
 
-    // 1. Save / Update Order in Database
-    const savedOrder = await Order.findOneAndUpdate(
-      {
-        shiprocketOrderId: String(orderData.order_id || orderData.order_number),
-      },
-      {
-        shiprocketOrderId: String(orderData.order_id || orderData.order_number),
-        items: orderData.cart_data?.items || orderData.line_items || [],
-        paymentStatus: orderData.status,
-        customerPhone: orderData.phone || orderData.shipping_address?.phone,
-        customerEmail: orderData.email || orderData.shipping_address?.email,
-        paymentType: orderData.payment_type || orderData.payment_mode,
-        totalAmount: orderData.total_amount_payable || orderData.total_price,
-        rawShiprocketData: orderData,
-      },
-      { upsert: true, new: true },
+    const shiprocketOrderId = String(
+      orderData.order_id || orderData.order_number,
     );
 
-    // 2. Build Shiprocket Engage Order Webhook Payload & Sync
+    // 1. Normalise the payload FIRST. Everything below — persistence, Engage
+    //    sync, notifications — is independent and individually guarded, so a
+    //    failure in one step can never silently swallow the others. The
+    //    previous version awaited an unguarded upsert here, and any error
+    //    jumped straight to the catch block without sending a single
+    //    notification.
+    const notificationOrderPayload =
+      transformShiprocketOrderToNotificationFormat(orderData, null);
+
+    console.log("[Notification Payload Prepared]:", {
+      orderNumber: notificationOrderPayload.orderNumber,
+      email: notificationOrderPayload.customerEmail,
+      phone: notificationOrderPayload.customerPhone,
+      itemsCount: notificationOrderPayload.items.length,
+    });
+
+    // 2. Save / Update Order in Database (never fatal)
+    let savedOrder = null;
+    try {
+      const orderDoc = await buildOrderDocFromShiprocket(
+        orderData,
+        notificationOrderPayload,
+        shiprocketOrderId,
+      );
+
+      savedOrder = await Order.findOne({ shiprocketOrderId });
+
+      if (savedOrder) {
+        savedOrder.set(orderDoc);
+      } else {
+        savedOrder = new Order(orderDoc);
+      }
+
+      // .save() (not findOneAndUpdate) so the pre-save hook assigns orderNumber
+      await savedOrder.save();
+      console.log(`[Shiprocket Webhook] Order saved: ${savedOrder.orderNumber}`);
+    } catch (dbErr) {
+      savedOrder = null;
+      console.error(
+        `[Shiprocket Webhook] Order persist failed for ${shiprocketOrderId}:`,
+        dbErr.message,
+      );
+    }
+
+    // 3. Build Shiprocket Engage Order Webhook Payload & Sync
     const srCompanyId = Number(process.env.SHIPROCKET_COMPANY_ID || 1666579);
     const orderDate = new Date().toISOString();
 
@@ -869,57 +989,31 @@ const handleOrderWebhook = async (req, res) => {
       );
     }
 
-    // 3. Format Normalized Order Object for Notifications
-    const notificationOrderPayload =
-      transformShiprocketOrderToNotificationFormat(orderData, savedOrder);
+    // 4. Dispatch Notifications — deduped against the saved order when we have
+    //    one, so a redelivered webhook does not re-notify the customer.
+    if (savedOrder?.orderNumber) {
+      notificationOrderPayload.orderNumber = savedOrder.orderNumber;
+    }
 
-    console.log("[Notification Payload Prepared]:", {
-      email: notificationOrderPayload.customerEmail,
-      phone: notificationOrderPayload.customerPhone,
-      itemsCount: notificationOrderPayload.items.length,
-    });
-
-    // 4. Dispatch Notifications Asynchronously
-    const notificationResults = await Promise.allSettled([
-      // A. Customer Invoice Email (Brevo)
-      notificationOrderPayload.customerEmail
-        ? sendInvoiceEmail(notificationOrderPayload)
-        : Promise.resolve("Skipped: No email address"),
-
-      // B. Admin Notification Email (Brevo)
-      sendAdminOrderNotification(notificationOrderPayload),
-
-      // C. Customer SMS Notification (Twilio)
-      notificationOrderPayload.customerPhone
-        ? sendSMSOrderConfirmation(notificationOrderPayload)
-        : Promise.resolve("Skipped: No phone number"),
-
-      // D. Customer & Admin WhatsApp Notification (Twilio)
-      notificationOrderPayload.customerPhone
-        ? sendWhatsappOrderConfirmation(notificationOrderPayload)
-        : Promise.resolve("Skipped: No phone number"),
-    ]);
-
-    notificationResults.forEach((result, idx) => {
-      const labels = ["Customer Email", "Admin Email", "SMS", "WhatsApp"];
-      if (result.status === "rejected") {
-        console.error(
-          `[Notification Error - ${labels[idx]}]:`,
-          result.reason?.message || result.reason,
-        );
-      } else {
-        console.log(`[Notification Success - ${labels[idx]}]:`, result.value);
-      }
-    });
+    const { skipped, results } = await dispatchOrderNotifications(
+      notificationOrderPayload,
+      { markOn: savedOrder },
+    );
 
     return res.status(200).json({
       status: "SUCCESS",
-      message: "Order processed and notifications dispatched",
+      message: skipped
+        ? "Order processed, notifications already sent earlier"
+        : "Order processed and notifications dispatched",
+      persisted: Boolean(savedOrder),
+      notifications: results || null,
       data: savedOrder,
     });
   } catch (error) {
     console.error("[Shiprocket Order Webhook Error]:", error);
-    return res.status(500).json({ status: "FAILED", error: error.message });
+    // Still 200 — Shiprocket retries on non-2xx and the order has already been
+    // handled as far as it could be. The log above is the signal to act on.
+    return res.status(200).json({ status: "FAILED", error: error.message });
   }
 };
 

@@ -35,10 +35,12 @@ const VariantSnapshotSchema = new mongoose.Schema(
 // ─── Order item ───────────────────────────────────────────────────────────────
 const OrderItemSchema = new mongoose.Schema(
   {
+    // Null when the item came from an external checkout (e.g. Shiprocket)
+    // and could not be matched back to a local product by SKU.
     product: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
-      required: true,
+      default: null,
     },
 
     // ── Product-level snapshot (immutable) ──────────────────────────────────
@@ -73,6 +75,7 @@ const PaymentSchema = new mongoose.Schema(
       enum: [
         "cod",
         "razorpay",
+        "shiprocket",
         "stripe",
         "payu",
         "upi",
@@ -185,6 +188,13 @@ const orderSchema = new mongoose.Schema(
   {
     orderNumber: { type: String, unique: true },
 
+    // ── External checkout (Shiprocket) ──────────────────────────────────────
+    // Present only on orders that originated in Shiprocket Checkout and
+    // arrived via the order webhook. Absent (not empty-string) otherwise, so
+    // the sparse index stays clean.
+    shiprocketOrderId: { type: String, trim: true, default: undefined },
+    rawShiprocketData: { type: mongoose.Schema.Types.Mixed, default: null },
+
     // ── Customer ────────────────────────────────────────────────────────────
     customer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -243,6 +253,10 @@ const orderSchema = new mongoose.Schema(
     },
     statusHistory: { type: [StatusHistorySchema], default: [] },
 
+    // Set the first time order-confirmation notifications go out, so the
+    // Razorpay verify call and the Razorpay webhook cannot double-send.
+    notificationsSentAt: { type: Date, default: null },
+
     // ── Timestamps ──────────────────────────────────────────────────────────
     placedAt: { type: Date, default: Date.now },
     confirmedAt: { type: Date, default: null },
@@ -270,7 +284,15 @@ const orderSchema = new mongoose.Schema(
     // ── Source ──────────────────────────────────────────────────────────────
     source: {
       type: String,
-      enum: ["website", "instagram", "whatsapp", "admin", "app", "other"],
+      enum: [
+        "website",
+        "shiprocket",
+        "instagram",
+        "whatsapp",
+        "admin",
+        "app",
+        "other",
+      ],
       default: "website",
     },
     ipAddress: { type: String, default: null },
@@ -288,6 +310,7 @@ orderSchema.index({ status: 1, placedAt: -1 });
 orderSchema.index({ customer: 1, placedAt: -1 });
 orderSchema.index({ "payment.status": 1 });
 orderSchema.index({ "shipping.trackingNumber": 1 });
+orderSchema.index({ shiprocketOrderId: 1 }, { sparse: true });
 
 // NEW INDEXES FOR TRASH FUNCTIONALITY:
 // 1. Index to quickly query trashed vs active orders

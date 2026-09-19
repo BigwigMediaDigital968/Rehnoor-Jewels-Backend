@@ -5,11 +5,8 @@ const { createOrder } = require("../../services/order/orderService");
 const {
   applyCouponToOrder,
 } = require("../../controller/coupon/couponController");
-const sendInvoiceEmail = require("../../services/mail/sendInvoiceEmail");
-const sendSMSOrderConfirmation = require("../../services/notification/sendSMS");
 // const sendAdminWhatsApp = require("../../services/mail/sendAdminWhatsApp.js");
-const sendAdminOrderNotification = require("../../services/mail/sendAdminOrderNotification");
-const sendWhatsappOrderConfirmation = require("../../services/notification/sendWhatsapp.js");
+const dispatchOrderNotifications = require("../../services/notification/dispatchOrderNotifications");
 
 // Helper function to get Shiprocket Auth Token
 const getShiprocketToken = async () => {
@@ -308,31 +305,10 @@ const placeOrder = async (req, res) => {
       }
     }
 
+    // COD orders are confirmed immediately. Prepaid orders notify from
+    // markOrderPaid / the Razorpay webhook once payment actually lands.
     if (paymentMethod === "cod") {
-      try {
-        await sendInvoiceEmail(order);
-      } catch (emailError) {
-        console.error(
-          `[EMAIL] Failed to send invoice for ${order.orderNumber}:`,
-          emailError.message,
-        );
-      }
-
-      sendWhatsappOrderConfirmation(order).catch(console.error);
-
-      sendSMSOrderConfirmation(order).catch(console.error);
-
-      console.log("Sending admin notification...");
-
-      try {
-        await sendAdminOrderNotification(order);
-        console.log("Admin email sent");
-      } catch (err) {
-        console.log(err.response?.status);
-        console.log(err.response?.headers);
-        console.log(err.response?.data);
-      }
-
+      await dispatchOrderNotifications(order, { markOn: order });
       // sendAdminWhatsApp(order).catch(console.error);
     }
 
