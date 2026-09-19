@@ -645,6 +645,88 @@ const generateCheckoutToken = async (req, res) => {
   }
 };
 
+// The live "Order Placed" webhook omits `state` but always carries a PIN.
+// `state` is required on AddressSchema, so without this the order cannot be
+// persisted at all. Coarse first-two-digit postal-zone mapping — good enough
+// for records and invoice display, and Shiprocket does the actual shipping.
+const PIN_ZONE_TO_STATE = {
+  11: "Delhi",
+  12: "Haryana",
+  13: "Haryana",
+  14: "Punjab",
+  15: "Punjab",
+  16: "Chandigarh",
+  17: "Himachal Pradesh",
+  18: "Jammu & Kashmir",
+  19: "Jammu & Kashmir",
+  20: "Uttar Pradesh",
+  21: "Uttar Pradesh",
+  22: "Uttar Pradesh",
+  23: "Uttar Pradesh",
+  24: "Uttar Pradesh",
+  25: "Uttar Pradesh",
+  26: "Uttar Pradesh",
+  27: "Uttar Pradesh",
+  28: "Uttar Pradesh",
+  30: "Rajasthan",
+  31: "Rajasthan",
+  32: "Rajasthan",
+  33: "Rajasthan",
+  34: "Rajasthan",
+  36: "Gujarat",
+  37: "Gujarat",
+  38: "Gujarat",
+  39: "Gujarat",
+  40: "Maharashtra",
+  41: "Maharashtra",
+  42: "Maharashtra",
+  43: "Maharashtra",
+  44: "Maharashtra",
+  45: "Madhya Pradesh",
+  46: "Madhya Pradesh",
+  47: "Madhya Pradesh",
+  48: "Madhya Pradesh",
+  49: "Chhattisgarh",
+  50: "Telangana",
+  51: "Andhra Pradesh",
+  52: "Andhra Pradesh",
+  53: "Andhra Pradesh",
+  56: "Karnataka",
+  57: "Karnataka",
+  58: "Karnataka",
+  59: "Karnataka",
+  60: "Tamil Nadu",
+  61: "Tamil Nadu",
+  62: "Tamil Nadu",
+  63: "Tamil Nadu",
+  64: "Tamil Nadu",
+  67: "Kerala",
+  68: "Kerala",
+  69: "Kerala",
+  70: "West Bengal",
+  71: "West Bengal",
+  72: "West Bengal",
+  73: "West Bengal",
+  74: "West Bengal",
+  75: "Odisha",
+  76: "Odisha",
+  77: "Odisha",
+  78: "Assam",
+  79: "North East",
+  80: "Bihar",
+  81: "Jharkhand",
+  82: "Jharkhand",
+  83: "Jharkhand",
+  84: "Bihar",
+  85: "Bihar",
+};
+
+function deriveStateFromPincode(pincode) {
+  const digits = String(pincode || "").replace(/\D/g, "");
+  if (digits.length !== 6) return "";
+  return PIN_ZONE_TO_STATE[digits.slice(0, 2)] || "";
+}
+
 function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
   const firstName =
     orderData.first_name ||
@@ -713,22 +795,57 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
     };
   });
 
+  const itemsTotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
+
+  // The live webhook sends `total_price` (line-items total, exclusive of
+  // shipping), `shipping_price` and `total_discount`. The documented payload
+  // sends `total_amount_payable` (grand total) instead. Support both.
   const subtotal = Number(
-    orderData.total_line_items_price || orderData.sub_total || 0,
+    orderData.total_line_items_price ||
+      orderData.sub_total ||
+      orderData.total_price ||
+      itemsTotal ||
+      0,
   );
   const shippingCharge = Number(
-    orderData.shipping_cost || orderData.shipping_charges || 0,
+    orderData.shipping_cost ||
+      orderData.shipping_charges ||
+      orderData.shipping_price ||
+      0,
   );
   const discountAmount = Number(
-    orderData.total_discounts || orderData.discount || 0,
+    orderData.total_discounts ||
+      orderData.discount ||
+      orderData.total_discount ||
+      0,
   );
   const total = Number(
-    orderData.total_amount_payable || orderData.total_price || 0,
+    orderData.total_amount_payable ||
+      subtotal + shippingCharge - discountAmount ||
+      0,
   );
+
+  const pincode = String(
+    orderData.zip ||
+      orderData.shipping_address?.pincode ||
+      orderData.shipping_address?.zip ||
+      orderData.billing_address?.zip ||
+      "",
+  );
+
+  const state =
+    orderData.state ||
+    orderData.shipping_address?.state ||
+    orderData.billing_address?.state ||
+    deriveStateFromPincode(pincode);
 
   return {
     orderNumber: String(
-      orderData.order_number || orderData.order_id || savedOrder?._id || "N/A",
+      orderData.order_number ||
+        orderData.order_id ||
+        orderData.cart_id ||
+        savedOrder?._id ||
+        "N/A",
     ),
     customerName: fullName,
     customerEmail,
@@ -754,12 +871,22 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
     shippingAddress: {
       fullName,
       addressLine1:
-        orderData.address_line1 || orderData.shipping_address?.address1 || "",
+        orderData.address_line1 ||
+        orderData.shipping_address?.address1 ||
+        orderData.billing_address?.address1 ||
+        "",
       addressLine2:
-        orderData.address_line2 || orderData.shipping_address?.address2 || "",
-      city: orderData.city || orderData.shipping_address?.city || "",
-      state: orderData.state || orderData.shipping_address?.state || "",
-      pincode: orderData.zip || orderData.shipping_address?.pincode || "",
+        orderData.address_line2 ||
+        orderData.shipping_address?.address2 ||
+        orderData.billing_address?.address2 ||
+        "",
+      city:
+        orderData.city ||
+        orderData.shipping_address?.city ||
+        orderData.billing_address?.city ||
+        "",
+      state,
+      pincode,
       country:
         orderData.country || orderData.shipping_address?.country || "India",
     },
@@ -772,13 +899,28 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
 // Treat it as thin whenever the line items carry no descriptive fields or the
 // shipping address is absent.
 function isThinShiprocketPayload(orderData) {
-  const items = orderData.cart_data?.items || orderData.line_items || [];
+  const items =
+    orderData.cart_data?.items ||
+    orderData.line_items ||
+    orderData.products ||
+    orderData.items ||
+    [];
   const itemsLackDetail =
     !items.length || items.every((i) => !i.name && !i.title && !i.price);
   const hasAddress = Boolean(
-    orderData.shipping_address?.address1 || orderData.address_line1,
+    orderData.shipping_address?.address1 ||
+      orderData.billing_address?.address1 ||
+      orderData.address_line1,
   );
-  return itemsLackDetail || !hasAddress;
+  // No email anywhere is also worth a lookup — without it no invoice can go
+  // out and the order cannot be persisted (customerEmail is required).
+  const hasEmail = Boolean(
+    orderData.email ||
+      orderData.customer?.email ||
+      orderData.shipping_address?.email ||
+      orderData.billing_address?.email,
+  );
+  return itemsLackDetail || !hasAddress || !hasEmail;
 }
 
 // Fetch Order Details API (integration guide §6) — the documented way to turn
@@ -902,19 +1044,52 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
   };
 }
 
+// Backstop against duplicate deliveries: Shiprocket fires this webhook more
+// than once per order, and the DB-backed `notificationsSentAt` guard only
+// helps when the order actually persisted. In-process and time-boxed — good
+// enough to stop a double-send on a single instance.
+const recentlyNotified = new Map();
+const NOTIFY_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+function alreadyNotifiedRecently(id) {
+  const seenAt = recentlyNotified.get(id);
+  const now = Date.now();
+  for (const [key, ts] of recentlyNotified) {
+    if (now - ts > NOTIFY_DEDUPE_WINDOW_MS) recentlyNotified.delete(key);
+  }
+  if (seenAt && now - seenAt < NOTIFY_DEDUPE_WINDOW_MS) return true;
+  recentlyNotified.set(id, now);
+  return false;
+}
+
 const handleOrderWebhook = async (req, res) => {
+  const t0 = Date.now();
   console.log("🚀 [WEBHOOK HIT] Received payload from Shiprocket:", req.body);
   try {
     let orderData = req.body;
 
-    if (!orderData || (!orderData.order_id && !orderData.order_number)) {
+    // The live "Order Placed" webhook identifies the order by `cart_id` only —
+    // it carries no order_id/order_number at all. Requiring those was silently
+    // 400-ing every real delivery before a single notification was attempted.
+    const shiprocketOrderId = String(
+      orderData?.order_id ||
+        orderData?.order_number ||
+        orderData?.cart_id ||
+        "",
+    );
+
+    if (!orderData || !shiprocketOrderId) {
+      console.error(
+        "❌ [WEBHOOK REJECTED] No order_id / order_number / cart_id in payload. Keys received:",
+        Object.keys(orderData || {}),
+      );
       return res
         .status(400)
         .json({ status: "FAILED", message: "Invalid payload" });
     }
 
-    const shiprocketOrderId = String(
-      orderData.order_id || orderData.order_number,
+    console.log(
+      `✅ [WEBHOOK ACCEPTED] id=${shiprocketOrderId} stage=${orderData.latest_stage || "n/a"} source=${orderData.source_name || "n/a"}`,
     );
 
     // 0. The webhook payload alone is too sparse to build an invoice or a
@@ -946,12 +1121,27 @@ const handleOrderWebhook = async (req, res) => {
     const notificationOrderPayload =
       transformShiprocketOrderToNotificationFormat(orderData, null);
 
-    console.log("[Notification Payload Prepared]:", {
-      orderNumber: notificationOrderPayload.orderNumber,
-      email: notificationOrderPayload.customerEmail,
-      phone: notificationOrderPayload.customerPhone,
-      itemsCount: notificationOrderPayload.items.length,
+    const np = notificationOrderPayload;
+    console.log("📦 [NORMALISED PAYLOAD]", {
+      orderNumber: np.orderNumber,
+      customerName: np.customerName,
+      email: np.customerEmail || "(none — invoice email will be SKIPPED)",
+      phone: np.customerPhone || "(none — SMS + WhatsApp will be SKIPPED)",
+      items: np.items.map((i) => `${i.name} x${i.quantity} @${i.unitPrice}`),
+      pricing: np.pricing,
+      address: `${np.shippingAddress.city}, ${np.shippingAddress.state || "(no state)"} - ${np.shippingAddress.pincode || "(no pin)"}`,
     });
+
+    if (!np.customerEmail) {
+      console.warn(
+        "⚠️  [NO EMAIL] Shiprocket payload carried no email address — customer invoice cannot be sent. Admin email still goes out.",
+      );
+    }
+    if (!np.customerPhone) {
+      console.warn(
+        "⚠️  [NO PHONE] Shiprocket payload carried no phone — SMS and WhatsApp cannot be sent.",
+      );
+    }
 
     // 2. Save / Update Order in Database (never fatal)
     let savedOrder = null;
@@ -972,12 +1162,22 @@ const handleOrderWebhook = async (req, res) => {
 
       // .save() (not findOneAndUpdate) so the pre-save hook assigns orderNumber
       await savedOrder.save();
-      console.log(`[Shiprocket Webhook] Order saved: ${savedOrder.orderNumber}`);
+      console.log(
+        `💾 [ORDER SAVED] ${savedOrder.orderNumber} (shiprocket id ${shiprocketOrderId})`,
+      );
     } catch (dbErr) {
       savedOrder = null;
       console.error(
-        `[Shiprocket Webhook] Order persist failed for ${shiprocketOrderId}:`,
-        dbErr.message,
+        `❌ [ORDER PERSIST FAILED] ${shiprocketOrderId}: ${dbErr.message}`,
+      );
+      if (dbErr.errors) {
+        console.error(
+          "   missing/invalid fields:",
+          Object.keys(dbErr.errors).join(", "),
+        );
+      }
+      console.error(
+        "   → notifications will STILL be attempted below; this only means the order row was not written.",
       );
     }
 
@@ -1072,14 +1272,32 @@ const handleOrderWebhook = async (req, res) => {
     }
 
     // 4. Dispatch Notifications — deduped against the saved order when we have
-    //    one, so a redelivered webhook does not re-notify the customer.
+    //    one, plus an in-process guard for when persistence failed.
     if (savedOrder?.orderNumber) {
       notificationOrderPayload.orderNumber = savedOrder.orderNumber;
     }
 
+    if (!savedOrder && alreadyNotifiedRecently(shiprocketOrderId)) {
+      console.log(
+        `⏭️  [NOTIFICATIONS SKIPPED] ${shiprocketOrderId} was already notified within the last 10 min (duplicate webhook delivery)`,
+      );
+      return res.status(200).json({
+        status: "SUCCESS",
+        message: "Duplicate delivery — notifications already sent",
+        persisted: false,
+        notifications: null,
+      });
+    }
+
+    console.log(`📨 [DISPATCHING NOTIFICATIONS] for ${np.orderNumber} ...`);
+
     const { skipped, results } = await dispatchOrderNotifications(
       notificationOrderPayload,
       { markOn: savedOrder },
+    );
+
+    console.log(
+      `🏁 [WEBHOOK DONE] id=${shiprocketOrderId} persisted=${Boolean(savedOrder)} skipped=${skipped} results=${JSON.stringify(results)} in ${Date.now() - t0}ms`,
     );
 
     return res.status(200).json({
@@ -1092,7 +1310,7 @@ const handleOrderWebhook = async (req, res) => {
       data: savedOrder,
     });
   } catch (error) {
-    console.error("[Shiprocket Order Webhook Error]:", error);
+    console.error("💥 [WEBHOOK FATAL]", error);
     // Still 200 — Shiprocket retries on non-2xx and the order has already been
     // handled as far as it could be. The log above is the signal to act on.
     return res.status(200).json({ status: "FAILED", error: error.message });

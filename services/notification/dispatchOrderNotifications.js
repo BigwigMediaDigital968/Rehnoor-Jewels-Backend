@@ -49,20 +49,25 @@ async function dispatchOrderNotifications(order, { markOn = null } = {}) {
     }
   }
 
+  const SKIP = Symbol("skipped");
+  const skip = (why) => Promise.resolve({ [SKIP]: why });
+
   const settled = await Promise.allSettled([
     order.customerEmail
       ? sendInvoiceEmail(order)
-      : Promise.resolve("Skipped: no email address"),
+      : skip("no email address in payload"),
 
-    sendAdminOrderNotification(order),
+    process.env.ADMIN_EMAIL
+      ? sendAdminOrderNotification(order)
+      : skip("ADMIN_EMAIL not configured"),
 
     order.customerPhone
       ? sendSMSOrderConfirmation(order)
-      : Promise.resolve("Skipped: no phone number"),
+      : skip("no phone number in payload"),
 
     order.customerPhone
       ? sendWhatsappOrderConfirmation(order)
-      : Promise.resolve("Skipped: no phone number"),
+      : skip("no phone number in payload"),
   ]);
 
   const results = {};
@@ -71,12 +76,19 @@ async function dispatchOrderNotifications(order, { markOn = null } = {}) {
     if (result.status === "rejected") {
       results[channel] = "failed";
       console.error(
-        `[Notification Error - ${channel}] ${label}:`,
+        `❌ [Notification FAILED - ${channel}] ${label}:`,
         result.reason?.message || result.reason,
+      );
+    } else if (result.value && result.value[SKIP]) {
+      // Distinguish "we chose not to send" from "we sent it" — reporting a
+      // skip as a success hides missing contact details in the live logs.
+      results[channel] = "skipped";
+      console.warn(
+        `⏭️  [Notification SKIPPED - ${channel}] ${label}: ${result.value[SKIP]}`,
       );
     } else {
       results[channel] = "sent";
-      console.log(`[Notification Success - ${channel}] ${label}`);
+      console.log(`✅ [Notification SENT - ${channel}] ${label}`);
     }
   });
 
