@@ -210,7 +210,7 @@ const orderSchema = new mongoose.Schema(
     customerName: { type: String, required: true, trim: true },
     customerEmail: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
       lowercase: true,
       match: [/^\S+@\S+\.\S+$/, "Invalid email"],

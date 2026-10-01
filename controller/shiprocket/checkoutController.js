@@ -568,7 +568,8 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
     shiprocketOrderId,
     rawShiprocketData: orderData,
     customerName: np.customerName,
-    customerEmail: np.customerEmail,
+    customerEmail: np.customerEmail || payload.billing_address?.email || payload.shipping_address?.email || "",
+    // customerEmail: np.customerEmail,
     customerPhone: np.customerPhone,
     items,
     shippingAddress: {
