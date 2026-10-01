@@ -192,7 +192,13 @@ const orderSchema = new mongoose.Schema(
     // Present only on orders that originated in Shiprocket Checkout and
     // arrived via the order webhook. Absent (not empty-string) otherwise, so
     // the sparse index stays clean.
-    shiprocketOrderId: { type: String, trim: true, default: undefined },
+    shiprocketOrderId: {
+      type: String,
+      trim: true,
+      default: undefined,
+      index: true,
+      sparse: true,
+    },
     rawShiprocketData: { type: mongoose.Schema.Types.Mixed, default: null },
 
     // ── Customer ────────────────────────────────────────────────────────────
