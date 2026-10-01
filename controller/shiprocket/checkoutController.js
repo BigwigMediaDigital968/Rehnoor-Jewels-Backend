@@ -382,7 +382,11 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
         "N/A",
     ),
     customerName: fullName,
-    customerEmail,
+    customerEmail:
+      np.customerEmail ||
+      orderData.billing_address?.email ||
+      orderData.shipping_address?.email ||
+      "",
     customerPhone: formattedPhone,
     createdAt: orderData.created_at || new Date(),
     // Shiprocket sends "SUCCESS" here; show customers something readable.
@@ -519,6 +523,118 @@ async function resolveProductIdBySku(sku) {
 }
 
 // Maps the normalised notification payload onto a schema-valid Order document.
+// async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
+//   // const rawMethod = String(
+//   //   orderData.payment_type || orderData.payment_mode || "prepaid",
+//   // ).toLowerCase();
+//   // const isCod = rawMethod.includes("cod") || rawMethod.includes("cash");
+
+//   // const rawPaymentStatus = String(
+//   //   orderData.financial_status || orderData.status || "",
+//   // ).toLowerCase();
+//   // const isPaid = /paid|captured|success|complete/.test(rawPaymentStatus);
+
+//   // const items = await Promise.all(
+//   //   np.items.map(async (item) => ({
+//   //     product: await resolveProductIdBySku(item.sku),
+//   //     name: item.name,
+//   //     slug: item.slug,
+//   //     sku: item.sku,
+//   //     image: item.image,
+//   //     unitPrice: item.unitPrice,
+//   //     quantity: item.quantity,
+//   //     lineTotal: item.lineTotal,
+//   //     variant: variantSnapshot,
+//   //   })),
+//   // );
+
+//   const rawItems = orderData.cart_data?.items || orderData.line_items || orderData.products || orderData.items || [];
+
+// const items = await Promise.all(
+//   np.items.map(async (item, idx) => {
+//     const rawMatch = rawItems[idx] || {};
+//     const variantIdentifier = rawMatch.variant_id || rawMatch.variantId || item.variant_id;
+
+//     const { productId, variantSnapshot } = await resolveProductAndVariantBySku(
+//       item.sku,
+//       variantIdentifier
+//     );
+
+//     return {
+//       product: productId,
+//       name: item.name,
+//       slug: item.slug,
+//       sku: item.sku,
+//       image: item.image,
+//       unitPrice: item.unitPrice,
+//       quantity: item.quantity,
+//       lineTotal: item.lineTotal,
+//       variant: variantSnapshot,
+//     };
+//   })
+// );
+
+//   // const items = await Promise.all(
+//   //   np.items.map(async (item) => {
+//   //     // Resolve both product ID and variant snapshot properly
+//   //     const { productId, variantSnapshot } =
+//   //       await resolveProductAndVariantBySku(item.sku, item.variant_id);
+
+//   //     return {
+//   //       product: productId,
+//   //       name: item.name,
+//   //       slug: item.slug,
+//   //       sku: item.sku,
+//   //       image: item.image,
+//   //       unitPrice: item.unitPrice,
+//   //       quantity: item.quantity,
+//   //       lineTotal: item.lineTotal,
+//   //       variant: variantSnapshot,
+//   //     };
+//   //   }),
+//   // );
+
+//   // return {
+//   //   shiprocketOrderId,
+//   //   rawShiprocketData: orderData,
+//   //   customerName: np.customerName,
+//   //   customerEmail:
+//   //     np.customerEmail ||
+//   //     payload.billing_address?.email ||
+//   //     payload.shipping_address?.email ||
+//   //     "",
+//   //   // customerEmail: np.customerEmail,
+//   //   customerPhone: np.customerPhone,
+//   //   items,
+//   //   shippingAddress: {
+//   //     fullName: np.shippingAddress.fullName,
+//   //     phone: np.customerPhone,
+//   //     addressLine1: np.shippingAddress.addressLine1,
+//   //     addressLine2: np.shippingAddress.addressLine2,
+//   //     city: np.shippingAddress.city,
+//   //     state: np.shippingAddress.state,
+//   //     pincode: np.shippingAddress.pincode,
+//   //     country: np.shippingAddress.country,
+//   //   },
+//   //   pricing: {
+//   //     subtotal: np.pricing.subtotal || np.pricing.total,
+//   //     shippingCharge: np.pricing.shippingCharge,
+//   //     discountAmount: np.pricing.discountAmount,
+//   //     total: np.pricing.total,
+//   //   },
+//   //   payment: {
+//   //     method: isCod ? "cod" : "shiprocket",
+//   //     status: isCod ? "pending" : isPaid ? "paid" : "initiated",
+//   //     amountPaid: isCod || !isPaid ? 0 : np.pricing.total,
+//   //     paidAt: !isCod && isPaid ? new Date() : null,
+//   //   },
+//   //   status: "confirmed",
+//   //   confirmedAt: new Date(),
+//   //   source: "shiprocket",
+//   // };
+// }
+
+// Maps the normalised notification payload onto a schema-valid Order document.
 async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
   const rawMethod = String(
     orderData.payment_type || orderData.payment_mode || "prepaid",
@@ -530,25 +646,21 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
   ).toLowerCase();
   const isPaid = /paid|captured|success|complete/.test(rawPaymentStatus);
 
-  // const items = await Promise.all(
-  //   np.items.map(async (item) => ({
-  //     product: await resolveProductIdBySku(item.sku),
-  //     name: item.name,
-  //     slug: item.slug,
-  //     sku: item.sku,
-  //     image: item.image,
-  //     unitPrice: item.unitPrice,
-  //     quantity: item.quantity,
-  //     lineTotal: item.lineTotal,
-  //     variant: variantSnapshot,
-  //   })),
-  // );
+  const rawItems =
+    orderData.cart_data?.items ||
+    orderData.line_items ||
+    orderData.products ||
+    orderData.items ||
+    [];
 
   const items = await Promise.all(
-    np.items.map(async (item) => {
-      // Resolve both product ID and variant snapshot properly
+    np.items.map(async (item, idx) => {
+      const rawMatch = rawItems[idx] || {};
+      const variantIdentifier =
+        rawMatch.variant_id || rawMatch.variantId || item.variant_id;
+
       const { productId, variantSnapshot } =
-        await resolveProductAndVariantBySku(item.sku, item.variant_id);
+        await resolveProductAndVariantBySku(item.sku, variantIdentifier);
 
       return {
         product: productId,
@@ -568,8 +680,11 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
     shiprocketOrderId,
     rawShiprocketData: orderData,
     customerName: np.customerName,
-    customerEmail: np.customerEmail || payload.billing_address?.email || payload.shipping_address?.email || "",
-    // customerEmail: np.customerEmail,
+    customerEmail:
+      np.customerEmail ||
+      orderData.billing_address?.email ||
+      orderData.shipping_address?.email ||
+      "",
     customerPhone: np.customerPhone,
     items,
     shippingAddress: {
