@@ -1172,15 +1172,28 @@ async function resolveProductAndVariantBySku(sku, variantIdOrNumericId) {
       queryConditions.push({ "variants._id": variantIdOrNumericId });
     }
 
-    if (queryConditions.length === 0) {
-      return { productId: null, variantSnapshot: null };
-    }
+    let product = queryConditions.length
+      ? await Product.findOne({ $or: queryConditions }).lean()
+      : null;
 
-    const product = await Product.findOne({ $or: queryConditions }).lean();
+    // Live webhooks send no SKU, only the numeric id we gave Shiprocket in the
+    // catalog sync (an md5 hash of the product/variant _id), so match on that.
+    const numericId = Number(variantIdOrNumericId);
+    if (!product && numericId) {
+      const candidates = await Product.find({})
+        .select("_id sku images variants")
+        .lean();
+      product = candidates.find(
+        (p) =>
+          toNumericId(p._id) === numericId ||
+          (p.variants || []).some((v) => toNumericId(v._id) === numericId),
+      );
+    }
 
     if (!product) return { productId: null, variantSnapshot: null };
 
     let variantSnapshot = null;
+    let image = product.images?.[0]?.src || "";
     if (product.variants && product.variants.length > 0) {
       const matchedVariant = product.variants.find(
         (v) =>
@@ -1200,12 +1213,14 @@ async function resolveProductAndVariantBySku(sku, variantIdOrNumericId) {
               : matchedVariant.options
             : {},
         };
+        image = matchedVariant.images?.[0]?.src || image;
       }
     }
 
     return {
       productId: product._id,
       variantSnapshot,
+      image,
     };
   } catch (error) {
     console.error("[Shiprocket Webhook] Product lookup failed:", error.message);
@@ -1300,8 +1315,7 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
       name: item.name || item.title || "Product",
       sku: item.sku || "",
       slug: item.slug || "",
-      image:
-        item.image || item.src || "https://rehnoorjewels.com/placeholder.jpg",
+      image: item.image || item.src || "",
       quantity,
       unitPrice,
       lineTotal: unitPrice * quantity,
@@ -1504,7 +1518,7 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
       const variantIdentifier =
         rawMatch.variant_id || rawMatch.variantId || item.variant_id;
 
-      const { productId, variantSnapshot } =
+      const { productId, variantSnapshot, image } =
         await resolveProductAndVariantBySku(item.sku, variantIdentifier);
 
       return {
@@ -1512,7 +1526,7 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
         name: item.name,
         slug: item.slug,
         sku: item.sku,
-        image: item.image,
+        image: item.image || image || "",
         unitPrice: item.unitPrice,
         quantity: item.quantity,
         lineTotal: item.lineTotal,

@@ -59,7 +59,8 @@ async function createShipment(order) {
       name: i.name,
       sku: i.sku || String(i.product),
       units: i.quantity,
-      selling_price: i.originalPrice,
+      // originalPrice is null when there's no compare-at price
+      selling_price: i.originalPrice ?? i.unitPrice,
       discount: i.originalPrice ? i.originalPrice - i.unitPrice : 0,
       hsn: 711319,
     })),
