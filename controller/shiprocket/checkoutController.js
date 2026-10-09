@@ -1495,9 +1495,74 @@ async function fetchShiprocketOrderDetails(orderId) {
   }
 }
 
+// The order webhook carries only cart_id and no payment info, while the
+// Order Details API needs Fastrr's order_id. Find it via the Order List API
+// and match on cart_id. Both ids are Mongo ObjectIds created ~1s apart, so
+// candidates are checked nearest-timestamp first.
+async function fetchShiprocketOrderDetailsByCartId(cartId) {
+  const apiKey = process.env.SHIPROCKET_API_KEY;
+  const secretKey = process.env.SHIPROCKET_SECRET_KEY;
+  if (!apiKey || !secretKey || !cartId) return null;
+
+  const now = new Date();
+  const iso = (d) => d.toISOString().replace(/\.\d+Z$/, "Z");
+  const rawBody = JSON.stringify({
+    startDate: iso(new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)),
+    endDate: iso(now),
+    timestamp: now.toISOString(),
+    limit: 250,
+    page: 0,
+  });
+
+  try {
+    const { data } = await axios.post(
+      "https://checkout-api.shiprocket.com/api/v1/custom-platform-order/details/list",
+      rawBody,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": apiKey,
+          "X-Api-HMAC-SHA256": generateShiprocketHMAC(rawBody, secretKey),
+        },
+        timeout: 10000,
+      },
+    );
+
+    const cartTs = parseInt(String(cartId).slice(0, 8), 16);
+    const candidates = (data?.result?.data || [])
+      .map((o) => o.id)
+      .filter(Boolean)
+      .sort(
+        (a, b) =>
+          Math.abs(parseInt(a.slice(0, 8), 16) - cartTs) -
+          Math.abs(parseInt(b.slice(0, 8), 16) - cartTs),
+      )
+      .slice(0, 10);
+
+    for (const orderId of candidates) {
+      const details = await fetchShiprocketOrderDetails(orderId);
+      if (details && String(details.cart_id) === String(cartId)) {
+        return details;
+      }
+    }
+    console.warn(
+      `[Shiprocket Order Details] No Fastrr order found for cart_id ${cartId}`,
+    );
+    return null;
+  } catch (err) {
+    console.error(
+      `[Shiprocket Order List] Fetch failed for cart_id ${cartId}:`,
+      err.response?.data || err.message,
+    );
+    return null;
+  }
+}
+
 async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
   const isCod = checkIsCodOrder(orderData);
-  const rawPaymentStatus = String(orderData.financial_status || "").toLowerCase();
+  const rawPaymentStatus = String(
+    orderData.financial_status || orderData.payment_status || "",
+  ).toLowerCase();
   const isPaid = !isCod && /paid|captured|success|complete/.test(rawPaymentStatus);
 
   const rawItems =
@@ -1610,19 +1675,35 @@ const handleOrderWebhook = async (req, res) => {
       `✅ [WEBHOOK ACCEPTED] id=${shiprocketOrderId} stage=${orderData.latest_stage || "n/a"} source=${orderData.source_name || "n/a"}`,
     );
 
-    if (isThinShiprocketPayload(orderData)) {
+    const lacksPayment = !orderData.payment_type && !orderData.payment_mode;
+    if (isThinShiprocketPayload(orderData) || lacksPayment) {
       console.log(
         `[Shiprocket Webhook] Thin payload for ${shiprocketOrderId} — fetching full order details`,
       );
-      const details = await fetchShiprocketOrderDetails(shiprocketOrderId);
+      const details = orderData.order_id
+        ? await fetchShiprocketOrderDetails(orderData.order_id)
+        : await fetchShiprocketOrderDetailsByCartId(orderData.cart_id);
       if (details) {
+        console.log(
+          `[Shiprocket Order Details] ${shiprocketOrderId} → order ${details.order_id} payment=${details.payment_type}/${details.payment_status}`,
+        );
+        const webhookItems =
+          orderData.cart_data?.items || orderData.line_items || orderData.items;
         orderData = {
           ...orderData,
           ...details,
-          cart_data: details.cart_data || orderData.cart_data,
+          // Details items carry only variant_id/quantity/price — keep the
+          // webhook's items (with names) when it has them.
+          cart_data: webhookItems?.length
+            ? { items: webhookItems }
+            : details.cart_data || orderData.cart_data,
           shipping_address: {
             ...(orderData.shipping_address || {}),
             ...(details.shipping_address || {}),
+          },
+          billing_address: {
+            ...(orderData.billing_address || {}),
+            ...(details.billing_address || {}),
           },
         };
       }
