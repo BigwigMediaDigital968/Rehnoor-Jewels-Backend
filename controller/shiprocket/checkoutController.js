@@ -1144,6 +1144,33 @@ function deriveStateFromPincode(pincode) {
   return PIN_ZONE_TO_STATE[digits.slice(0, 2)] || "";
 }
 
+// Helper to determine if an order is COD
+function checkIsCodOrder(orderData) {
+  const mode = String(
+    orderData.payment_mode ||
+      orderData.payment_type ||
+      orderData.payment_method ||
+      orderData.gateway ||
+      "",
+  ).toLowerCase();
+
+  const financialStatus = String(
+    orderData.financial_status || orderData.payment_status || "",
+  ).toLowerCase();
+
+  // If explicitly says cod or cash, OR financial status is pending with no online transaction ID
+  if (mode.includes("cod") || mode.includes("cash") || orderData.is_cod === true) {
+    return true;
+  }
+
+  // Fastrr webhook defaults for COD when financial_status is pending
+  if (financialStatus === "pending" || financialStatus === "unpaid") {
+    return true;
+  }
+
+  return false;
+}
+
 // ─── Extended Product/Variant Resolver ───────────────────────────────────────
 async function resolveProductAndVariantBySku(sku, variantIdOrNumericId) {
   if (!sku && !variantIdOrNumericId)
@@ -1351,11 +1378,7 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
     orderData.billing_address?.state ||
     deriveStateFromPincode(pincode);
 
-  // Exact payment mode check
-  const rawPaymentMode = String(
-    orderData.payment_mode || orderData.payment_type || orderData.payment_method || "",
-  ).toLowerCase();
-  const isCod = rawPaymentMode.includes("cod") || rawPaymentMode.includes("cash");
+  const isCod = checkIsCodOrder(orderData);
 
   return {
     orderNumber: String(
@@ -1473,14 +1496,8 @@ async function fetchShiprocketOrderDetails(orderId) {
 }
 
 async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
-  const rawMethod = String(
-    orderData.payment_mode || orderData.payment_type || orderData.payment_method || "",
-  ).toLowerCase();
-  const isCod = rawMethod.includes("cod") || rawMethod.includes("cash");
-
-  const rawPaymentStatus = String(
-    orderData.financial_status || "",
-  ).toLowerCase();
+  const isCod = checkIsCodOrder(orderData);
+  const rawPaymentStatus = String(orderData.financial_status || "").toLowerCase();
   const isPaid = !isCod && /paid|captured|success|complete/.test(rawPaymentStatus);
 
   const rawItems =
@@ -1688,6 +1705,7 @@ const handleOrderWebhook = async (req, res) => {
     const lineItems = (
       orderData.cart_data?.items ||
       orderData.line_items ||
+      orderData.items ||
       []
     ).map((item) => ({
       sku: item.sku || "N/A",
@@ -1705,10 +1723,14 @@ const handleOrderWebhook = async (req, res) => {
       type: "",
     }));
 
-    const rawPaymentMode = String(
-      orderData.payment_mode || orderData.payment_type || orderData.payment_method || "",
-    ).toLowerCase();
-    const isCodMode = rawPaymentMode.includes("cod") || rawPaymentMode.includes("cash");
+    const isCodMode = checkIsCodOrder(orderData);
+    const calculatedSubtotal = Number(
+      orderData.total_line_items_price ||
+        orderData.sub_total ||
+        orderData.total_price ||
+        np.pricing.subtotal ||
+        0,
+    );
 
     const engageOrderPayload = {
       sr_company_id: srCompanyId,
@@ -1733,23 +1755,21 @@ const handleOrderWebhook = async (req, res) => {
         process.env.DEFAULT_FALLBACK_EMAIL ||
         "noemail@rehnoorjewels.com",
       total_price: Number(
-        orderData.total_amount_payable || orderData.total_price || 0,
+        orderData.total_amount_payable || orderData.total_price || np.pricing.total || 0,
       ),
-      total_line_items_price: Number(
-        orderData.total_line_items_price || orderData.total_amount_payable || 0,
-      ),
+      total_line_items_price: calculatedSubtotal, // Required by Shiprocket Engage
       cart_token: orderData.cart_token || "",
       checkout_token: orderData.checkout_token || "",
       ga_transaction_id: "",
       created_at: orderData.created_at || orderDate,
       updated_at: orderData.updated_at || orderDate,
-      shipping_cost: Number(orderData.shipping_cost || 0),
+      shipping_cost: Number(orderData.shipping_cost || orderData.shipping_price || 0),
       total_discounts: Number(orderData.total_discounts || 0),
       city: orderData.city || orderData.shipping_address?.city || "",
       state: orderData.state || orderData.shipping_address?.state || "",
       country:
         orderData.country || orderData.shipping_address?.country || "India",
-      zip: String(orderData.zip || orderData.shipping_address?.pincode || ""),
+      zip: String(orderData.zip || orderData.shipping_address?.pincode || orderData.shipping_address?.zip || ""),
       payment_mode: isCodMode ? "COD" : "Prepaid",
       taxes_included: true,
       total_tax: Number(orderData.total_tax || 0),
