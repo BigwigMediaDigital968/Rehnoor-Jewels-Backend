@@ -121,7 +121,10 @@ async function pushToShiprocket(orderId) {
 
   order.shipping.carrierId = String(srData.shipment_id || "");
   order.shipping.carrier = "Shiprocket";
-  order.shipping.gatewayResponse = srData;
+  order.shipping.gatewayResponse = {
+    ...srData,
+    cancelledShipments: order.shipping.gatewayResponse?.cancelledShipments || [],
+  };
   order.status = "ready_to_ship";
   order.statusHistory.push({
     status: "ready_to_ship",

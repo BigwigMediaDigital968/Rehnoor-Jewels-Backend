@@ -14,5 +14,8 @@ router.post(
 // tracking webhook needs its own parser — without it req.body is undefined and
 // the handler throws on destructuring.
 router.post("/shiprocket", express.json(), shiprocketWebhook);
+// Same handler at a URL Shiprocket accepts (it rejects URLs containing
+// "shiprocket") — register this one in the Shiprocket dashboard.
+router.post("/courier-updates", express.json(), shiprocketWebhook);
 
 module.exports = router;

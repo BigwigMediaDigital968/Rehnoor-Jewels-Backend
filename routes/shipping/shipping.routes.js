@@ -4,11 +4,15 @@ const {
   pushOrder,
   requestPickup,
   generateAWB,
+  syncAll,
+  syncOne,
 } = require("../../controller/shipping/shiprocketController");
 const { trackByAWB } = require("../../services/shipping/trackingService");
 
 router.post("/admin/:orderId/push", protect, adminOnly, pushOrder);
 router.post("/admin/pickup", protect, adminOnly, requestPickup);
+router.post("/admin/sync", protect, adminOnly, syncAll);
+router.post("/admin/:orderId/sync", protect, adminOnly, syncOne);
 router.post("/admin/:orderId/awb", protect, adminOnly, generateAWB);
 
 // Public tracking

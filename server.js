@@ -107,3 +107,12 @@ app.use((err, req, res, next) => {
 app.listen(process.env.PORT || 8000, () => {
   console.log(`Server running on port ${process.env.PORT || 8000}`);
 });
+
+// ─── Shiprocket status sync ───────────────────
+// Fallback for updates the tracking webhook never sends (e.g. a shipment
+// cancelled before an AWB was assigned).
+const { syncActiveShiprocketOrders } = require("./services/shipping/shiprocketSync");
+setInterval(
+  () => syncActiveShiprocketOrders().catch((e) => console.error("[Shiprocket Sync]", e.message)),
+  15 * 60 * 1000,
+);

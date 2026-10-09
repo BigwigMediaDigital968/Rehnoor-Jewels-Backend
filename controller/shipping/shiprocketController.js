@@ -6,6 +6,10 @@ const {
   cancelShipment,
 } = require("../../services/shipping/shiprocketService");
 const Order = require("../../model/Order/orderModel");
+const {
+  syncActiveShiprocketOrders,
+  syncOrderFromShiprocket,
+} = require("../../services/shipping/shiprocketSync");
 
 // POST /api/admin/shipping/:orderId/push  — admin triggers shipment creation
 const pushOrder = asyncHandler(async (req, res) => {
@@ -38,4 +42,18 @@ const generateAWB = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
-module.exports = { pushOrder, requestPickup, generateAWB };
+// POST /api/shipping/admin/sync  — pull latest status of all pushed orders
+const syncAll = asyncHandler(async (req, res) => {
+  const result = await syncActiveShiprocketOrders();
+  res.json({ success: true, ...result });
+});
+
+// POST /api/shipping/admin/:orderId/sync
+const syncOne = asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.orderId);
+  if (!order) return res.status(404).json({ message: "Order not found" });
+  const updated = await syncOrderFromShiprocket(order);
+  res.json({ success: true, updated, order });
+});
+
+module.exports = { pushOrder, requestPickup, generateAWB, syncAll, syncOne };

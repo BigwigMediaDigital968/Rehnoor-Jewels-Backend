@@ -23,8 +23,15 @@ async function createShipment(order) {
 
   // Log the full payload so you can see exactly what's being sent
 
+  // A shipment cancelled in Shiprocket keeps its channel order id there, so a
+  // re-push needs a fresh one.
+  const cancelledCount =
+    order.shipping?.gatewayResponse?.cancelledShipments?.length || 0;
+
   const payload = {
-    order_id: order.orderNumber,
+    order_id: cancelledCount
+      ? `${order.orderNumber}-R${cancelledCount}`
+      : order.orderNumber,
     order_date: new Date(order.placedAt).toISOString().split("T")[0],
 
     pickup_location: process.env.SHIPROCKET_PICKUP_LOCATION || "Primary",

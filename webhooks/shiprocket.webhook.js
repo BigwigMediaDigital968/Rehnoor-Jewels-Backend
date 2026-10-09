@@ -1,6 +1,11 @@
 const Order = require("../model/Order/orderModel");
+const {
+  applyShiprocketStatus,
+} = require("../services/shipping/shiprocketSync");
 
-// Shiprocket sends status updates here — configure the URL in your Shiprocket dashboard
+// Shiprocket tracking webhook. Configure it in Shiprocket → Settings → API →
+// Webhooks using /api/courier-updates — Shiprocket rejects webhook URLs that
+// contain "shiprocket", "kartrocket", "sr" or "kr".
 async function shiprocketWebhook(req, res) {
   try {
     await handleTrackingUpdate(req, res);
@@ -12,44 +17,43 @@ async function shiprocketWebhook(req, res) {
 }
 
 async function handleTrackingUpdate(req, res) {
-  const { awb, current_status, shipment_id, delivered_date } = req.body || {};
+  const {
+    awb,
+    current_status,
+    shipment_status,
+    courier_name,
+    order_id,
+    sr_order_id,
+    shipment_id,
+    current_timestamp,
+  } = req.body || {};
 
-  const order = await Order.findOne({
-    $or: [
-      { "shipping.awbCode": awb },
-      { "shipping.carrierId": String(shipment_id) },
-    ],
-  });
+  const or = [];
+  if (awb) or.push({ "shipping.awbCode": String(awb) });
+  if (sr_order_id) or.push({ "shipping.gatewayResponse.order_id": Number(sr_order_id) });
+  if (shipment_id) or.push({ "shipping.carrierId": String(shipment_id) });
+  // order_id is our channel order id; a re-push carries a "-R<n>" suffix
+  if (order_id) or.push({ orderNumber: String(order_id).replace(/-R\d+$/, "") });
 
-  if (!order) return res.status(404).json({ error: "Order not found" });
+  const order = or.length ? await Order.findOne({ $or: or }) : null;
 
-  const statusMap = {
-    DELIVERED: "delivered",
-    "OUT FOR DELIVERY": "out_for_delivery",
-    SHIPPED: "shipped",
-    "PICKUP SCHEDULED": "ready_to_ship",
-    CANCELLED: "cancelled",
-    "RTO INITIATED": "return_in_transit",
-    "RTO DELIVERED": "returned",
-  };
-
-  const newStatus = statusMap[current_status?.toUpperCase()];
-  if (newStatus && order.status !== newStatus) {
-    order.status = newStatus;
-    order.statusHistory.push({
-      status: newStatus,
-      note: `Shiprocket: ${current_status}`,
-      changedBy: "system",
-    });
-    if (newStatus === "delivered")
-      order.deliveredAt = delivered_date
-        ? new Date(delivered_date)
-        : new Date();
-    if (newStatus === "shipped") order.shippedAt = new Date();
-    await order.save();
+  // Always 200 — Shiprocket disables webhooks that keep failing.
+  if (!order) {
+    console.warn(
+      `[Shiprocket Tracking Webhook] No order for awb=${awb} order_id=${order_id}`,
+    );
+    return res.status(200).json({ received: true, matched: false });
   }
 
-  res.json({ received: true });
+  const changed = applyShiprocketStatus(order, {
+    status: current_status || shipment_status,
+    awb,
+    courierName: courier_name,
+    at: current_timestamp,
+  });
+  if (changed) await order.save();
+
+  res.status(200).json({ received: true });
 }
 
 module.exports = shiprocketWebhook;
