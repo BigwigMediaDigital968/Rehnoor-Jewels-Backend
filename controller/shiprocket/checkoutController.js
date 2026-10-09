@@ -22,8 +22,6 @@
 //       return res.status(400).json({ error: "Cart items are required" });
 //     }
 
-//     // Fail loudly instead of throwing an opaque "key argument must be of type
-//     // string" from createHmac further down.
 //     const missingEnv = ["SHIPROCKET_API_KEY", "SHIPROCKET_SECRET_KEY"].filter(
 //       (key) => !process.env[key],
 //     );
@@ -101,10 +99,6 @@
 //   }
 // };
 
-// // The live "Order Placed" webhook omits `state` but always carries a PIN.
-// // `state` is required on AddressSchema, so without this the order cannot be
-// // persisted at all. Coarse first-two-digit postal-zone mapping — good enough
-// // for records and invoice display, and Shiprocket does the actual shipping.
 // const PIN_ZONE_TO_STATE = {
 //   11: "Delhi",
 //   12: "Haryana",
@@ -189,17 +183,40 @@
 //     return { productId: null, variantSnapshot: null };
 
 //   try {
-//     const product = await Product.findOne({
-//       $or: [
-//         { sku },
-//         { "variants.sku": sku },
-//         { "variants._id": variantIdOrNumericId },
-//       ],
-//     }).lean();
+//     const isObjectId =
+//       typeof variantIdOrNumericId === "string" &&
+//       /^[0-9a-fA-F]{24}$/.test(variantIdOrNumericId);
+
+//     const queryConditions = [];
+//     if (sku) {
+//       queryConditions.push({ sku }, { "variants.sku": sku });
+//     }
+//     if (isObjectId) {
+//       queryConditions.push({ "variants._id": variantIdOrNumericId });
+//     }
+
+//     let product = queryConditions.length
+//       ? await Product.findOne({ $or: queryConditions }).lean()
+//       : null;
+
+//     // Live webhooks send no SKU, only the numeric id we gave Shiprocket in the
+//     // catalog sync (an md5 hash of the product/variant _id), so match on that.
+//     const numericId = Number(variantIdOrNumericId);
+//     if (!product && numericId) {
+//       const candidates = await Product.find({})
+//         .select("_id sku images variants")
+//         .lean();
+//       product = candidates.find(
+//         (p) =>
+//           toNumericId(p._id) === numericId ||
+//           (p.variants || []).some((v) => toNumericId(v._id) === numericId),
+//       );
+//     }
 
 //     if (!product) return { productId: null, variantSnapshot: null };
 
 //     let variantSnapshot = null;
+//     let image = product.images?.[0]?.src || "";
 //     if (product.variants && product.variants.length > 0) {
 //       const matchedVariant = product.variants.find(
 //         (v) =>
@@ -219,12 +236,14 @@
 //               : matchedVariant.options
 //             : {},
 //         };
+//         image = matchedVariant.images?.[0]?.src || image;
 //       }
 //     }
 
 //     return {
 //       productId: product._id,
 //       variantSnapshot,
+//       image,
 //     };
 //   } catch (error) {
 //     console.error("[Shiprocket Webhook] Product lookup failed:", error.message);
@@ -295,10 +314,9 @@
 //   } else if (formattedPhone.length > 0 && !formattedPhone.startsWith("+")) {
 //     formattedPhone = `+${formattedPhone}`;
 //   } else {
-//     formattedPhone = ""; // Keep empty string if no phone provided
+//     formattedPhone = "";
 //   }
 
-//   // FIX 2: Safe Email Extraction
 //   const customerEmail =
 //     orderData.email ||
 //     orderData.customer?.email ||
@@ -306,7 +324,6 @@
 //     orderData.billing_address?.email ||
 //     "";
 
-//   // FIX 3: Safe Items Array Fallbacks
 //   const rawItems =
 //     orderData.cart_data?.items ||
 //     orderData.line_items ||
@@ -321,8 +338,7 @@
 //       name: item.name || item.title || "Product",
 //       sku: item.sku || "",
 //       slug: item.slug || "",
-//       image:
-//         item.image || item.src || "https://rehnoorjewels.com/placeholder.jpg",
+//       image: item.image || item.src || "",
 //       quantity,
 //       unitPrice,
 //       lineTotal: unitPrice * quantity,
@@ -331,9 +347,6 @@
 
 //   const itemsTotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
 
-//   // The live webhook sends `total_price` (line-items total, exclusive of
-//   // shipping), `shipping_price` and `total_discount`. The documented payload
-//   // sends `total_amount_payable` (grand total) instead. Support both.
 //   const subtotal = Number(
 //     orderData.total_line_items_price ||
 //       orderData.sub_total ||
@@ -385,7 +398,6 @@
 //     customerEmail: customerEmail,
 //     customerPhone: formattedPhone,
 //     createdAt: orderData.created_at || new Date(),
-//     // Shiprocket sends "SUCCESS" here; show customers something readable.
 //     status: /^success$/i.test(String(orderData.status || ""))
 //       ? "Confirmed"
 //       : orderData.status || "Confirmed",
@@ -427,11 +439,6 @@
 //   };
 // }
 
-// // The order webhook payload is minimal — per the integration guide it carries
-// // only order_id, cart_data.items[{variant_id, quantity}], status, phone, email,
-// // payment_type and total_amount_payable. No item names, no prices, no address.
-// // Treat it as thin whenever the line items carry no descriptive fields or the
-// // shipping address is absent.
 // function isThinShiprocketPayload(orderData) {
 //   const items =
 //     orderData.cart_data?.items ||
@@ -443,23 +450,18 @@
 //     !items.length || items.every((i) => !i.name && !i.title && !i.price);
 //   const hasAddress = Boolean(
 //     orderData.shipping_address?.address1 ||
-//     orderData.billing_address?.address1 ||
-//     orderData.address_line1,
+//       orderData.billing_address?.address1 ||
+//       orderData.address_line1,
 //   );
-//   // No email anywhere is also worth a lookup — without it no invoice can go
-//   // out and the order cannot be persisted (customerEmail is required).
 //   const hasEmail = Boolean(
 //     orderData.email ||
-//     orderData.customer?.email ||
-//     orderData.shipping_address?.email ||
-//     orderData.billing_address?.email,
+//       orderData.customer?.email ||
+//       orderData.shipping_address?.email ||
+//       orderData.billing_address?.email,
 //   );
 //   return itemsLackDetail || !hasAddress || !hasEmail;
 // }
 
-// // Fetch Order Details API (integration guide §6) — the documented way to turn
-// // an order_id into the full cart, payment and shipping detail. Returns null on
-// // any failure so the caller can carry on with whatever the webhook gave us.
 // async function fetchShiprocketOrderDetails(orderId) {
 //   const apiKey = process.env.SHIPROCKET_API_KEY;
 //   const secretKey = process.env.SHIPROCKET_SECRET_KEY;
@@ -501,9 +503,6 @@
 //   }
 // }
 
-// // Best-effort match of a Shiprocket line item back to a local product.
-// // Returns null rather than throwing — an unmatched item is still a valid
-// // order item (Order.items[].product allows null).
 // async function resolveProductIdBySku(sku) {
 //   if (!sku) return null;
 //   try {
@@ -518,7 +517,6 @@
 //   }
 // }
 
-// // Maps the normalised notification payload onto a schema-valid Order document.
 // async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
 //   const rawMethod = String(
 //     orderData.payment_type || orderData.payment_mode || "prepaid",
@@ -543,7 +541,7 @@
 //       const variantIdentifier =
 //         rawMatch.variant_id || rawMatch.variantId || item.variant_id;
 
-//       const { productId, variantSnapshot } =
+//       const { productId, variantSnapshot, image } =
 //         await resolveProductAndVariantBySku(item.sku, variantIdentifier);
 
 //       return {
@@ -551,7 +549,7 @@
 //         name: item.name,
 //         slug: item.slug,
 //         sku: item.sku,
-//         image: item.image,
+//         image: item.image || image || "",
 //         unitPrice: item.unitPrice,
 //         quantity: item.quantity,
 //         lineTotal: item.lineTotal,
@@ -599,10 +597,6 @@
 //   };
 // }
 
-// // Backstop against duplicate deliveries: Shiprocket fires this webhook more
-// // than once per order, and the DB-backed `notificationsSentAt` guard only
-// // helps when the order actually persisted. In-process and time-boxed — good
-// // enough to stop a double-send on a single instance.
 // const recentlyNotified = new Map();
 // const NOTIFY_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 
@@ -623,9 +617,6 @@
 //   try {
 //     let orderData = req.body;
 
-//     // The live "Order Placed" webhook identifies the order by `cart_id` only —
-//     // it carries no order_id/order_number at all. Requiring those was silently
-//     // 400-ing every real delivery before a single notification was attempted.
 //     const shiprocketOrderId = String(
 //       orderData?.order_id ||
 //         orderData?.order_number ||
@@ -647,8 +638,6 @@
 //       `✅ [WEBHOOK ACCEPTED] id=${shiprocketOrderId} stage=${orderData.latest_stage || "n/a"} source=${orderData.source_name || "n/a"}`,
 //     );
 
-//     // 0. The webhook payload alone is too sparse to build an invoice or a
-//     //    valid Order from, so pull the full record when anything is missing.
 //     if (isThinShiprocketPayload(orderData)) {
 //       console.log(
 //         `[Shiprocket Webhook] Thin payload for ${shiprocketOrderId} — fetching full order details`,
@@ -667,12 +656,6 @@
 //       }
 //     }
 
-//     // 1. Normalise the payload FIRST. Everything below — persistence, Engage
-//     //    sync, notifications — is independent and individually guarded, so a
-//     //    failure in one step can never silently swallow the others. The
-//     //    previous version awaited an unguarded upsert here, and any error
-//     //    jumped straight to the catch block without sending a single
-//     //    notification.
 //     const notificationOrderPayload =
 //       transformShiprocketOrderToNotificationFormat(orderData, null);
 
@@ -719,7 +702,6 @@
 
 //       await savedOrder.save();
 
-//       // Automatically deduct stock for new orders
 //       if (isNewOrder) {
 //         await deductOrderInventory(savedOrder.items);
 //       }
@@ -770,8 +752,12 @@
 
 //     const engageOrderPayload = {
 //       sr_company_id: srCompanyId,
-//       orderId: String(orderData.order_id || orderData.order_number),
-//       order_number: String(orderData.order_number || orderData.order_id),
+//       orderId: String(
+//         orderData.order_id || orderData.order_number || orderData.cart_id,
+//       ),
+//       order_number: String(
+//         orderData.order_number || orderData.order_id || orderData.cart_id,
+//       ),
 //       customer_id: String(orderData.customer_id || "0"),
 //       phone: String(
 //         orderData.phone || orderData.shipping_address?.phone || "",
@@ -780,7 +766,13 @@
 //         `${orderData.first_name || ""} ${orderData.last_name || ""}`.trim() ||
 //         orderData.fullName ||
 //         "Customer",
-//       email: orderData.email || orderData.shipping_address?.email || "",
+//       // Safe email fallback so Shiprocket Engage validation does not fail
+//       email:
+//         orderData.email ||
+//         orderData.shipping_address?.email ||
+//         orderData.billing_address?.email ||
+//         process.env.DEFAULT_FALLBACK_EMAIL ||
+//         "noemail@rehnoorjewels.com",
 //       total_price: Number(
 //         orderData.total_amount_payable || orderData.total_price || 0,
 //       ),
@@ -834,8 +826,7 @@
 //       );
 //     }
 
-//     // 4. Dispatch Notifications — deduped against the saved order when we have
-//     //    one, plus an in-process guard for when persistence failed.
+//     // 4. Dispatch Notifications
 //     if (savedOrder?.orderNumber) {
 //       notificationOrderPayload.orderNumber = savedOrder.orderNumber;
 //     }
@@ -874,8 +865,6 @@
 //     });
 //   } catch (error) {
 //     console.error("💥 [WEBHOOK FATAL]", error);
-//     // Still 200 — Shiprocket retries on non-2xx and the order has already been
-//     // handled as far as it could be. The log above is the signal to act on.
 //     return res.status(200).json({ status: "FAILED", error: error.message });
 //   }
 // };
@@ -974,6 +963,7 @@
 //   handleOrderWebhook,
 //   handleAbandonedCheckoutWebhook,
 // };
+
 
 const axios = require("axios");
 const crypto = require("crypto");
@@ -1157,7 +1147,7 @@ function deriveStateFromPincode(pincode) {
 // ─── Extended Product/Variant Resolver ───────────────────────────────────────
 async function resolveProductAndVariantBySku(sku, variantIdOrNumericId) {
   if (!sku && !variantIdOrNumericId)
-    return { productId: null, variantSnapshot: null };
+    return { productId: null, variantSnapshot: null, image: "" };
 
   try {
     const isObjectId =
@@ -1176,8 +1166,6 @@ async function resolveProductAndVariantBySku(sku, variantIdOrNumericId) {
       ? await Product.findOne({ $or: queryConditions }).lean()
       : null;
 
-    // Live webhooks send no SKU, only the numeric id we gave Shiprocket in the
-    // catalog sync (an md5 hash of the product/variant _id), so match on that.
     const numericId = Number(variantIdOrNumericId);
     if (!product && numericId) {
       const candidates = await Product.find({})
@@ -1190,7 +1178,7 @@ async function resolveProductAndVariantBySku(sku, variantIdOrNumericId) {
       );
     }
 
-    if (!product) return { productId: null, variantSnapshot: null };
+    if (!product) return { productId: null, variantSnapshot: null, image: "" };
 
     let variantSnapshot = null;
     let image = product.images?.[0]?.src || "";
@@ -1224,7 +1212,7 @@ async function resolveProductAndVariantBySku(sku, variantIdOrNumericId) {
     };
   } catch (error) {
     console.error("[Shiprocket Webhook] Product lookup failed:", error.message);
-    return { productId: null, variantSnapshot: null };
+    return { productId: null, variantSnapshot: null, image: "" };
   }
 }
 
@@ -1363,6 +1351,12 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
     orderData.billing_address?.state ||
     deriveStateFromPincode(pincode);
 
+  // Exact payment mode check
+  const rawPaymentMode = String(
+    orderData.payment_mode || orderData.payment_type || orderData.payment_method || "",
+  ).toLowerCase();
+  const isCod = rawPaymentMode.includes("cod") || rawPaymentMode.includes("cash");
+
   return {
     orderNumber: String(
       orderData.order_number ||
@@ -1386,10 +1380,8 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
       total,
     },
     payment: {
-      method: String(
-        orderData.payment_type || orderData.payment_mode || "Prepaid",
-      ).toUpperCase(),
-      status: orderData.financial_status || orderData.status || "Paid",
+      method: isCod ? "COD" : "Prepaid",
+      status: isCod ? "Pending" : "Paid",
     },
     shippingAddress: {
       fullName,
@@ -1480,30 +1472,16 @@ async function fetchShiprocketOrderDetails(orderId) {
   }
 }
 
-async function resolveProductIdBySku(sku) {
-  if (!sku) return null;
-  try {
-    const product = await Product.findOne({
-      $or: [{ sku }, { "variants.sku": sku }],
-    })
-      .select("_id")
-      .lean();
-    return product?._id || null;
-  } catch {
-    return null;
-  }
-}
-
 async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
   const rawMethod = String(
-    orderData.payment_type || orderData.payment_mode || "prepaid",
+    orderData.payment_mode || orderData.payment_type || orderData.payment_method || "",
   ).toLowerCase();
   const isCod = rawMethod.includes("cod") || rawMethod.includes("cash");
 
   const rawPaymentStatus = String(
-    orderData.financial_status || orderData.status || "",
+    orderData.financial_status || "",
   ).toLowerCase();
-  const isPaid = /paid|captured|success|complete/.test(rawPaymentStatus);
+  const isPaid = !isCod && /paid|captured|success|complete/.test(rawPaymentStatus);
 
   const rawItems =
     orderData.cart_data?.items ||
@@ -1658,7 +1636,7 @@ const handleOrderWebhook = async (req, res) => {
       );
     }
 
-    // 2. Save / Update Order in Database (never fatal)
+    // 2. Save / Update Order in Database
     let savedOrder = null;
     let isNewOrder = false;
     try {
@@ -1727,6 +1705,11 @@ const handleOrderWebhook = async (req, res) => {
       type: "",
     }));
 
+    const rawPaymentMode = String(
+      orderData.payment_mode || orderData.payment_type || orderData.payment_method || "",
+    ).toLowerCase();
+    const isCodMode = rawPaymentMode.includes("cod") || rawPaymentMode.includes("cash");
+
     const engageOrderPayload = {
       sr_company_id: srCompanyId,
       orderId: String(
@@ -1743,7 +1726,6 @@ const handleOrderWebhook = async (req, res) => {
         `${orderData.first_name || ""} ${orderData.last_name || ""}`.trim() ||
         orderData.fullName ||
         "Customer",
-      // Safe email fallback so Shiprocket Engage validation does not fail
       email:
         orderData.email ||
         orderData.shipping_address?.email ||
@@ -1768,7 +1750,7 @@ const handleOrderWebhook = async (req, res) => {
       country:
         orderData.country || orderData.shipping_address?.country || "India",
       zip: String(orderData.zip || orderData.shipping_address?.pincode || ""),
-      payment_mode: orderData.payment_mode || "Prepaid",
+      payment_mode: isCodMode ? "COD" : "Prepaid",
       taxes_included: true,
       total_tax: Number(orderData.total_tax || 0),
       order_mode: "Online",
@@ -1776,12 +1758,12 @@ const handleOrderWebhook = async (req, res) => {
       line_items: lineItems,
       userId: String(orderData.userId || ""),
       source: "web",
-      payment_method: String(orderData.payment_type || "cod").toLowerCase(),
+      payment_method: isCodMode ? "cod" : "prepaid",
       address_line1:
         orderData.address_line1 || orderData.shipping_address?.address1 || "",
       address_line2:
         orderData.address_line2 || orderData.shipping_address?.address2 || "",
-      financial_status: orderData.financial_status || "Paid",
+      financial_status: isCodMode ? "Pending" : "Paid",
       fulfillment_status: "",
       categories: "",
       type: "",
