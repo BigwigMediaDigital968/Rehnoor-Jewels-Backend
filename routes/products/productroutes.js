@@ -11,6 +11,7 @@ const {
   toggleProductStatus,
   deleteProduct,
   bulkDeleteProducts,
+  duplicateProducts,
   addVariant,
   updateVariant,
   deleteVariant,
@@ -42,6 +43,9 @@ router.get("/admin/export/excel", ...adminAuth, exportProductsExcel);
 
 // GET  /api/products/admin/:idOrSlug
 router.get("/admin/:idOrSlug", ...adminAuth, adminGetProductByIdOrSlug);
+
+// POST /api/products/admin/duplicate  { ids: [] }
+router.post("/admin/duplicate", ...adminAuth, duplicateProducts);
 
 // POST /api/products/admin/create
 router.post("/admin/create", ...adminAuth, upload.productFields, createProduct);

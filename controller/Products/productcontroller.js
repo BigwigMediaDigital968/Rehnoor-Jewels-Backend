@@ -1005,6 +1005,130 @@ const bulkDeleteProducts = async (req, res) => {
   }
 };
 
+// ─── DUPLICATE ─────────────────────────────────────────────────────────────────
+
+/** Re-upload a Cloudinary asset so the copy owns its own file (deleting the
+ *  original product later must not break the duplicate). Falls back to the
+ *  original URL if the re-upload fails. */
+async function cloneAsset(url, uploaded) {
+  if (!url) return url;
+  try {
+    const { cloudinary } = require("../../config/cloudinary");
+    const result = await cloudinary.uploader.upload(url, {
+      folder: "rehnoor/products",
+    });
+    uploaded.push(result.secure_url);
+    return result.secure_url;
+  } catch (e) {
+    console.warn("[Cloudinary] clone failed:", url, e.message);
+    return url;
+  }
+}
+
+async function uniqueValue(field, base, build) {
+  let candidate = build(base, 1);
+  for (let i = 2; await Product.exists({ [field]: candidate }); i++) {
+    candidate = build(base, i);
+  }
+  return candidate;
+}
+
+const duplicateProducts = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide a non-empty array of product IDs.",
+      });
+    }
+
+    const originals = await Product.find({ _id: { $in: ids } });
+    if (originals.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "No matching products found." });
+    }
+
+    const copies = [];
+
+    for (const original of originals) {
+      const uploaded = [];
+      try {
+        const src = original.toObject({ flattenMaps: true });
+        delete src._id;
+        delete src.__v;
+        delete src.createdAt;
+        delete src.updatedAt;
+
+        src.name = `${src.name} (Copy)`.slice(0, 150);
+        src.slug = await uniqueValue(
+          "slug",
+          original.slug,
+          (b, n) => (n === 1 ? `${b}-copy` : `${b}-copy-${n}`),
+        );
+        if (src.sku) {
+          src.sku = await uniqueValue("sku", original.sku, (b, n) =>
+            n === 1 ? `${b}-COPY` : `${b}-COPY-${n}`,
+          );
+        }
+        src.isActive = false;
+        src.isFeatured = false;
+
+        src.images = await Promise.all(
+          (src.images || []).map(async (img) => ({
+            ...img,
+            _id: undefined,
+            src: await cloneAsset(img.src, uploaded),
+          })),
+        );
+        if (src.offerBannerImage) {
+          src.offerBannerImage = await cloneAsset(src.offerBannerImage, uploaded);
+        }
+        if (src.sizeChartImage) {
+          src.sizeChartImage = await cloneAsset(src.sizeChartImage, uploaded);
+        }
+
+        src.variants = await Promise.all(
+          (src.variants || []).map(async (v, idx) => {
+            const { _id, createdAt, updatedAt, ...rest } = v;
+            return {
+              ...rest,
+              // variant SKU is globally unique — suffix it for the copy
+              sku: rest.sku ? `${rest.sku}-COPY-${Date.now()}-${idx}` : undefined,
+              images: await Promise.all(
+                (rest.images || []).map(async (img) => ({
+                  ...img,
+                  _id: undefined,
+                  src: await cloneAsset(img.src, uploaded),
+                })),
+              ),
+            };
+          }),
+        );
+
+        const copy = await Product.create(src);
+        if (copy.collection) {
+          await syncCollection(copy.collection, copy._id, "add");
+        }
+        copies.push(copy);
+      } catch (err) {
+        await Promise.allSettled(uploaded.map(destroyCloudinaryAsset));
+        throw err;
+      }
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `${copies.length} product(s) duplicated. Copies are inactive until you activate them.`,
+      data: copies,
+    });
+  } catch (error) {
+    return handleMongoError(error, res);
+  }
+};
+
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -1021,6 +1145,7 @@ module.exports = {
   toggleProductStatus,
   deleteProduct,
   bulkDeleteProducts,
+  duplicateProducts,
 
   // Admin — variants
   addVariant,
