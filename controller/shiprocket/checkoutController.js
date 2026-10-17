@@ -13,10 +13,59 @@ function generateShiprocketHMAC(rawStringPayload, secret) {
     .digest("base64");
 }
 
+// Re-prices the cart from the DB and re-validates the admin coupon, so the
+// discount sent to Shiprocket can't be forged from the browser.
+async function buildCartDiscount(couponCode, items) {
+  const Coupon = require("../../model/coupon/couponModal");
+  const { buildItemsWithCollections } = require("../coupon/couponController");
+
+  const coupon = await Coupon.findOne({
+    code: String(couponCode).toUpperCase().trim(),
+  });
+  if (!coupon) return { error: "Invalid coupon code." };
+
+  const priced = [];
+  for (const item of items) {
+    if (!item.productId || !/^[0-9a-fA-F]{24}$/.test(String(item.productId)))
+      continue;
+    const product = await Product.findById(item.productId).lean();
+    if (!product) continue;
+    const variant = (product.variants || []).find(
+      (v) => String(v._id) === String(item.variantId),
+    );
+    priced.push({
+      productId: String(product._id),
+      quantity: Number(item.quantity || item.qty || 1),
+      price: Number(variant?.price ?? product.price ?? 0),
+    });
+  }
+  if (!priced.length) return { error: "Cart items could not be verified." };
+
+  const subtotal = priced.reduce((s, i) => s + i.price * i.quantity, 0);
+  const itemCount = priced.reduce((s, i) => s + i.quantity, 0);
+
+  const result = coupon.calculateDiscount({
+    subtotal,
+    itemCount,
+    items: await buildItemsWithCollections(priced),
+    userEmail: null,
+    userId: null,
+    isFirstOrder: false,
+  });
+  if (!result.valid) return { error: result.message };
+
+  return {
+    cartDiscount: {
+      coupon_code: coupon.code,
+      amount: Number(result.discountAmount),
+    },
+  };
+}
+
 // 1. Generate Access Token
 const generateCheckoutToken = async (req, res) => {
   try {
-    const { items, redirectUrl } = req.body;
+    const { items, redirectUrl, couponCode } = req.body;
 
     if (!items || !items.length) {
       return res.status(400).json({ error: "Cart items are required" });
@@ -43,8 +92,21 @@ const generateCheckoutToken = async (req, res) => {
         ? redirectUrl
         : `https://${sellerDomain}/thankyou`;
 
+    let cartDiscount = null;
+    if (couponCode) {
+      const discount = await buildCartDiscount(couponCode, items);
+      if (discount.error) {
+        return res.status(400).json({ error: discount.error });
+      }
+      // free_shipping / zero-value coupons carry no fixed amount to send
+      if (discount.cartDiscount.amount > 0) {
+        cartDiscount = discount.cartDiscount;
+      }
+    }
+
     const payloadObject = {
       cart_data: {
+        ...(cartDiscount && { cart_discount: cartDiscount }),
         items: items.map((item) => {
           const rawId =
             item.variantId || item.id || item._id || item.variant?._id;
@@ -305,6 +367,117 @@ async function deductOrderInventory(items) {
   }
 }
 
+// ─── Coupon / discount extraction ────────────────────────────────────────────
+// Shiprocket Checkout applies coupons itself (configured in its dashboard), so
+// the order payload is the only place the discount shows up. Field names vary
+// between the webhook and the Order Details API, so probe the known spellings.
+const DISCOUNT_AMOUNT_KEYS = [
+  "total_discount",
+  "total_discounts",
+  "discount_total",
+  "coupon_discount",
+  "discount_amount",
+  "coupon_discount",
+  "discount",
+];
+const DISCOUNT_CODE_KEYS = [
+  "discount_name",
+  "discount_code",
+  "coupon_code",
+  "coupon_name",
+  "coupon",
+  "promo_code",
+];
+
+function firstPositive(obj, keys) {
+  for (const key of keys) {
+    const n = Number(obj?.[key]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+function codeFromEntry(entry) {
+  if (!entry) return "";
+  if (typeof entry === "string") return entry;
+  return String(
+    entry.code || entry.coupon_code || entry.name || entry.title || "",
+  );
+}
+
+function extractCouponInfo(orderData) {
+  let amount = firstPositive(orderData, DISCOUNT_AMOUNT_KEYS);
+  let couponAmount = Number(orderData?.coupon_discount) || 0;
+  let code = "";
+
+  // Documented fields: coupon_codes[], coupon_discount, prepaid_discount,
+  // total_discount, discount_detail.discount_data[].
+  if (Array.isArray(orderData?.coupon_codes) && orderData.coupon_codes.length) {
+    code = String(orderData.coupon_codes[0] || "").trim();
+  }
+  const detail = orderData?.discount_detail?.discount_data;
+  if (Array.isArray(detail) && detail.length) {
+    if (!code) code = String(detail[0]?.discount_code || "").trim();
+    if (!couponAmount) {
+      couponAmount = detail.reduce(
+        (s, d) => s + Number(d?.discount_amount || 0),
+        0,
+      );
+    }
+  }
+
+  for (const key of DISCOUNT_CODE_KEYS) {
+    const val = orderData?.[key];
+    if (typeof val === "string" && val.trim()) {
+      code = val.trim();
+      break;
+    }
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      code = codeFromEntry(val);
+      if (code) break;
+    }
+  }
+
+  const lists = [
+    orderData?.coupons,
+    orderData?.discounts,
+    orderData?.discount_codes,
+    orderData?.discount_applications,
+  ].filter((l) => Array.isArray(l) && l.length);
+
+  if (lists.length) {
+    const entries = lists[0];
+    if (!code) code = codeFromEntry(entries[0]).trim();
+    if (!amount) {
+      amount = entries.reduce(
+        (sum, e) =>
+          sum + Number(e?.discount_amount ?? e?.amount ?? e?.value ?? 0),
+        0,
+      );
+    }
+  }
+
+  // Per-line discounts as a last resort
+  if (!amount) {
+    const rawItems =
+      orderData?.cart_data?.items ||
+      orderData?.line_items ||
+      orderData?.items ||
+      [];
+    amount = rawItems.reduce(
+      (sum, i) => sum + Number(i?.discount || i?.total_discount || 0),
+      0,
+    );
+  }
+
+  amount = Number(amount) || 0;
+  return {
+    code: code.trim().toUpperCase(),
+    amount, // total discount on the order (coupon + prepaid)
+    couponAmount: couponAmount || amount, // coupon portion only
+  };
+}
+
 function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
   const firstName =
     orderData.first_name ||
@@ -372,11 +545,12 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
 
   const itemsTotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
 
+  // total_price may already be net of the coupon, so prefer the gross figures.
   const subtotal = Number(
     orderData.total_line_items_price ||
       orderData.sub_total ||
-      orderData.total_price ||
       itemsTotal ||
+      orderData.total_price ||
       0,
   );
   const shippingCharge = Number(
@@ -385,15 +559,11 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
       orderData.shipping_price ||
       0,
   );
-  const discountAmount = Number(
-    orderData.total_discounts ||
-      orderData.discount ||
-      orderData.total_discount ||
-      0,
-  );
+  const coupon = extractCouponInfo(orderData);
+  const discountAmount = coupon.amount;
   const total = Number(
     orderData.total_amount_payable ||
-      subtotal + shippingCharge - discountAmount ||
+      Math.max(0, subtotal + shippingCharge - discountAmount) ||
       0,
   );
 
@@ -435,6 +605,7 @@ function transformShiprocketOrderToNotificationFormat(orderData, savedOrder) {
       discountAmount,
       total,
     },
+    coupon: coupon.code || discountAmount ? coupon : null,
     payment: {
       method: isCod ? "COD" : "Prepaid",
       status: isCod ? "Pending" : "Paid",
@@ -655,6 +826,12 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
       discountAmount: np.pricing.discountAmount,
       total: np.pricing.total,
     },
+    coupon: np.coupon
+      ? {
+          code: np.coupon.code,
+          discountAmount: np.coupon.couponAmount,
+        }
+      : null,
     payment: {
       method: isCod ? "cod" : "shiprocket",
       status: isCod ? "pending" : isPaid ? "paid" : "initiated",
@@ -665,6 +842,31 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
     confirmedAt: new Date(),
     source: "shiprocket",
   };
+}
+
+// Shiprocket has already validated the coupon, so just count the redemption
+// against the matching admin coupon (if one exists with the same code).
+async function recordCouponRedemption(coupon, savedOrder) {
+  if (!coupon?.code) return;
+  try {
+    const Coupon = require("../../model/coupon/couponModal");
+    await Coupon.updateOne(
+      { code: coupon.code },
+      {
+        $inc: { usageCount: 1 },
+        $push: {
+          usageLogs: {
+            order: savedOrder._id,
+            email: (savedOrder.customerEmail || "").toLowerCase(),
+            discountAmount: coupon.couponAmount,
+            orderTotal: savedOrder.pricing?.total || 0,
+          },
+        },
+      },
+    );
+  } catch (err) {
+    console.error("[Coupon] Failed to record redemption:", err.message);
+  }
 }
 
 const recentlyNotified = new Map();
@@ -746,6 +948,19 @@ const handleOrderWebhook = async (req, res) => {
       transformShiprocketOrderToNotificationFormat(orderData, null);
 
     const np = notificationOrderPayload;
+    // If a coupon was used but we couldn't read it, dump the keys so the
+    // field mapping in extractCouponInfo() can be corrected.
+    if (!np.coupon) {
+      console.warn(
+        "[Coupon] No discount found in payload. Keys:",
+        Object.keys(orderData).join(", "),
+      );
+    } else {
+      console.log(
+        `[Coupon] code=${np.coupon.code || "(unnamed)"} amount=${np.coupon.amount}`,
+      );
+    }
+
     console.log("📦 [NORMALISED PAYLOAD]", {
       orderNumber: np.orderNumber,
       customerName: np.customerName,
@@ -790,6 +1005,7 @@ const handleOrderWebhook = async (req, res) => {
 
       if (isNewOrder) {
         await deductOrderInventory(savedOrder.items);
+        await recordCouponRedemption(np.coupon, savedOrder);
       }
 
       console.log(
@@ -878,7 +1094,7 @@ const handleOrderWebhook = async (req, res) => {
       created_at: orderData.created_at || orderDate,
       updated_at: orderData.updated_at || orderDate,
       shipping_cost: Number(orderData.shipping_cost || orderData.shipping_price || 0),
-      total_discounts: Number(orderData.total_discounts || 0),
+      total_discounts: np.pricing.discountAmount,
       city: orderData.city || orderData.shipping_address?.city || "",
       state: orderData.state || orderData.shipping_address?.state || "",
       country:
@@ -888,7 +1104,9 @@ const handleOrderWebhook = async (req, res) => {
       taxes_included: true,
       total_tax: Number(orderData.total_tax || 0),
       order_mode: "Online",
-      coupons: orderData.coupons || [],
+      coupons: np.coupon
+        ? [{ code: np.coupon.code, discount_amount: np.coupon.couponAmount }]
+        : orderData.coupons || [],
       line_items: lineItems,
       userId: String(orderData.userId || ""),
       source: "web",

@@ -391,6 +391,8 @@ async function buildItemsWithCollections(cartItems) {
   }));
 }
 
+exports.buildItemsWithCollections = buildItemsWithCollections;
+
 // ── [POST] /api/coupons/validate ─────────────────────────────────────────────
 // Validate a coupon code at checkout — does NOT increment usage count
 exports.validateCoupon = asyncHandler(async (req, res) => {
