@@ -74,6 +74,10 @@ async function createShipment(order) {
 
     payment_method: order.payment.method === "cod" ? "COD" : "Prepaid",
 
+    // Order-level coupon discount and shipping, so the Shiprocket invoice
+    // shows them instead of just the net total.
+    shipping_charges: Number(order.pricing.shippingCharge || 0),
+    total_discount: Number(order.pricing.discountAmount || 0),
     sub_total: order.pricing.total,
     length: 10,
     breadth: 10,
