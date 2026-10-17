@@ -28,6 +28,25 @@ async function createShipment(order) {
   const cancelledCount =
     order.shipping?.gatewayResponse?.cancelledShipments?.length || 0;
 
+  const orderItems = order.items.map((i) => ({
+    name: i.name,
+    sku: i.sku || String(i.product),
+    units: i.quantity,
+    // originalPrice is null when there's no compare-at price
+    selling_price: i.originalPrice ?? i.unitPrice,
+    discount: i.originalPrice ? i.originalPrice - i.unitPrice : 0,
+    hsn: 711319,
+  }));
+
+  // Shiprocket derives the grand total as
+  //   sub_total + shipping_charges - total_discount
+  // so sub_total must be the items value only (not the final payable), or a
+  // large coupon pushes the COD grand total to zero/negative and is rejected.
+  const itemsValue = orderItems.reduce(
+    (sum, i) => sum + (i.selling_price - i.discount) * i.units,
+    0,
+  );
+
   const payload = {
     order_id: cancelledCount
       ? `${order.orderNumber}-R${cancelledCount}`
@@ -62,15 +81,7 @@ async function createShipment(order) {
 
     shipping_is_billing: order.billingSameAsShipping ? 1 : 0,
 
-    order_items: order.items.map((i) => ({
-      name: i.name,
-      sku: i.sku || String(i.product),
-      units: i.quantity,
-      // originalPrice is null when there's no compare-at price
-      selling_price: i.originalPrice ?? i.unitPrice,
-      discount: i.originalPrice ? i.originalPrice - i.unitPrice : 0,
-      hsn: 711319,
-    })),
+    order_items: orderItems,
 
     payment_method: order.payment.method === "cod" ? "COD" : "Prepaid",
 
@@ -78,7 +89,7 @@ async function createShipment(order) {
     // shows them instead of just the net total.
     shipping_charges: Number(order.pricing.shippingCharge || 0),
     total_discount: Number(order.pricing.discountAmount || 0),
-    sub_total: order.pricing.total,
+    sub_total: itemsValue,
     length: 10,
     breadth: 10,
     height: 5,

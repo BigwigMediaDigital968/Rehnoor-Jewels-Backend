@@ -1105,9 +1105,7 @@ const handleOrderWebhook = async (req, res) => {
       taxes_included: true,
       total_tax: Number(orderData.total_tax || 0),
       order_mode: "Online",
-      coupons: np.coupon
-        ? [{ code: np.coupon.code, discount_amount: np.coupon.couponAmount }]
-        : orderData.coupons || [],
+      coupons: orderData.coupons || [],
       line_items: lineItems,
       userId: String(orderData.userId || ""),
       source: "web",
