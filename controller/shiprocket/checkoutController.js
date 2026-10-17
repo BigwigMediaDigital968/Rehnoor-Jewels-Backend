@@ -824,6 +824,7 @@ async function buildOrderDocFromShiprocket(orderData, np, shiprocketOrderId) {
       subtotal: np.pricing.subtotal || np.pricing.total,
       shippingCharge: np.pricing.shippingCharge,
       discountAmount: np.pricing.discountAmount,
+      prepaidDiscount: Number(orderData.prepaid_discount) || 0,
       total: np.pricing.total,
     },
     coupon: np.coupon

@@ -163,7 +163,8 @@ const PricingSchema = new mongoose.Schema(
   {
     subtotal: { type: Number, required: true },
     shippingCharge: { type: Number, default: 0 },
-    discountAmount: { type: Number, default: 0 },
+    discountAmount: { type: Number, default: 0 }, // total of all discounts
+    prepaidDiscount: { type: Number, default: 0 }, // part of discountAmount
     taxAmount: { type: Number, default: 0 },
     taxRate: { type: Number, default: 0 },
     total: { type: Number, required: true },
