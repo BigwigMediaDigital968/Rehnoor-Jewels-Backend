@@ -62,63 +62,63 @@ function formatProductForShiprocket(p) {
 
   const variants = hasVariants
     ? p.variants.map((v) => {
-        const variantImageSrc = v.image
-          ? typeof v.image === "string"
-            ? v.image
-            : v.image.src
-          : primaryImageSrc;
+      const variantImageSrc = v.image
+        ? typeof v.image === "string"
+          ? v.image
+          : v.image.src
+        : primaryImageSrc;
 
-        return {
-          id: toNumericId(v._id),
-          title: v.title || "Default Title",
-          price: Number(v.price || 0).toFixed(2),
-          compare_at_price: v.originalPrice
-            ? Number(v.originalPrice).toFixed(2)
-            : "0.00",
-          sku: v.sku || p.sku || "",
-          quantity: v.stock !== null && v.stock !== undefined ? v.stock : 10,
-          created_at: p.createdAt
-            ? new Date(p.createdAt).toISOString()
-            : new Date().toISOString(),
-          updated_at: p.updatedAt
-            ? new Date(p.updatedAt).toISOString()
-            : new Date().toISOString(),
-          taxable: true,
-          grams: v.grams || (v.weight ? Math.round(v.weight * 1000) : 0),
-          weight: v.weight || p.weight || 0.5,
-          weight_unit: v.weightUnit || v.weight_unit || "kg",
-          image: {
-            src: variantImageSrc,
-          },
-          option_values: parseOptions(v.options),
-        };
-      })
-    : [
-        {
-          id: toNumericId(p._id),
-          title: "Default Title",
-          price: Number(p.price || 0).toFixed(2),
-          compare_at_price: p.originalPrice
-            ? Number(p.originalPrice).toFixed(2)
-            : "0.00",
-          sku: p.sku || "",
-          quantity: p.stock !== null && p.stock !== undefined ? p.stock : 10,
-          created_at: p.createdAt
-            ? new Date(p.createdAt).toISOString()
-            : new Date().toISOString(),
-          updated_at: p.updatedAt
-            ? new Date(p.updatedAt).toISOString()
-            : new Date().toISOString(),
-          taxable: true,
-          grams: p.grams || (p.weight ? Math.round(p.weight * 1000) : 500),
-          weight: p.weight || 0.5,
-          weight_unit: p.weightUnit || p.weight_unit || "kg",
-          image: {
-            src: primaryImageSrc,
-          },
-          option_values: {},
+      return {
+        id: toNumericId(v._id),
+        title: v.title || "Default Title",
+        price: Number(v.price || 0).toFixed(2),
+        compare_at_price: v.originalPrice
+          ? Number(v.originalPrice).toFixed(2)
+          : "0.00",
+        sku: v.sku || p.sku || "",
+        quantity: v.stock !== null && v.stock !== undefined ? v.stock : 10,
+        created_at: p.createdAt
+          ? new Date(p.createdAt).toISOString()
+          : new Date().toISOString(),
+        updated_at: p.updatedAt
+          ? new Date(p.updatedAt).toISOString()
+          : new Date().toISOString(),
+        taxable: true,
+        grams: v.grams || (v.weight ? Math.round(v.weight * 1000) : 0),
+        weight: v.weight || p.weight || 0.5,
+        weight_unit: v.weightUnit || v.weight_unit || "kg",
+        image: {
+          src: variantImageSrc,
         },
-      ];
+        option_values: parseOptions(v.options),
+      };
+    })
+    : [
+      {
+        id: toNumericId(p._id),
+        title: "Default Title",
+        price: Number(p.price || 0).toFixed(2),
+        compare_at_price: p.originalPrice
+          ? Number(p.originalPrice).toFixed(2)
+          : "0.00",
+        sku: p.sku || "",
+        quantity: p.stock !== null && p.stock !== undefined ? p.stock : 10,
+        created_at: p.createdAt
+          ? new Date(p.createdAt).toISOString()
+          : new Date().toISOString(),
+        updated_at: p.updatedAt
+          ? new Date(p.updatedAt).toISOString()
+          : new Date().toISOString(),
+        taxable: true,
+        grams: p.grams || (p.weight ? Math.round(p.weight * 1000) : 500),
+        weight: p.weight || 0.5,
+        weight_unit: p.weightUnit || p.weight_unit || "kg",
+        image: {
+          src: primaryImageSrc,
+        },
+        option_values: {},
+      },
+    ];
 
   const imagesList = (p.images || []).map((img) => ({
     src: typeof img === "string" ? img : img.src,
@@ -154,11 +154,27 @@ const getShiprocketProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 100;
+    const collection_id = parseInt(req.query.collection_id);
     const skip = (page - 1) * limit;
 
+    const filter = {
+      isActive: true,
+    };
+
+    if (!isNaN(collection_id)) {
+      const collections = await Collection.find({ isActive: true })
+        .select("_id")
+        .lean();
+      const col = collections.find((c) => toNumericId(c._id) === collection_id);
+      if (!col) {
+        return res.status(200).json({ data: { total: 0, products: [] } });
+      }
+      filter.collection = col._id;
+    }
+
     const [products, total] = await Promise.all([
-      Product.find({ isActive: true }).skip(skip).limit(limit).lean(),
-      Product.countDocuments({ isActive: true }),
+      Product.find(filter).skip(skip).limit(limit).lean(),
+      Product.countDocuments(filter),
     ]);
 
     const formattedProducts = products.map(formatProductForShiprocket);
@@ -213,7 +229,7 @@ const getShiprocketCollections = async (req, res) => {
 
     const formattedCollections = collections.map((col) => {
       const imageSrc =
-        typeof col.image === "string" ? col.image : col.image?.src || "";
+        typeof col.heroImage === "string" ? col.heroImage : col.heroImage?.src || "";
 
       return {
         id: toNumericId(col._id),
@@ -231,6 +247,8 @@ const getShiprocketCollections = async (req, res) => {
           : new Date().toISOString(),
       };
     });
+
+    // console.log("formattedCollections", formattedCollections);
 
     return res.status(200).json({
       data: {
