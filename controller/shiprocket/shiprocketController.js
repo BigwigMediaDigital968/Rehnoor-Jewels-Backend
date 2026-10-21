@@ -265,7 +265,11 @@ const getShiprocketCollections = async (req, res) => {
 // 4. Fetch Products by Collection
 const getShiprocketProductsByCollection = async (req, res) => {
   try {
-    const { idOrSlug } = req.params;
+    // Shiprocket sends ?collection_id=; the path param is kept for manual use.
+    const idOrSlug = String(req.query.collection_id ?? req.params.idOrSlug ?? "");
+    if (!idOrSlug) {
+      return res.status(400).json({ error: "collection_id is required" });
+    }
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 100;
     const skip = (page - 1) * limit;

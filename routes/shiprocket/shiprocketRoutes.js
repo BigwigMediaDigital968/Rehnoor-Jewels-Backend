@@ -16,6 +16,7 @@ const {
 router.get("/products", getShiprocketProducts);
 router.get("/products/:id", getShiprocketProductById);
 router.get("/collections", getShiprocketCollections);
+router.get("/collection-products", getShiprocketProductsByCollection);
 router.get("/collections/:idOrSlug", getShiprocketProductsByCollection);
 
 // Checkout Token
