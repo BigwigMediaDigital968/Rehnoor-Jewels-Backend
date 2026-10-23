@@ -1,6 +1,9 @@
 const Product = require("../../model/products/productModel");
 const Collection = require("../../model/collection/collectionModel");
 const ExcelJS = require("exceljs");
+const {
+  syncProductToShiprocket,
+} = require("../../services/shipping/shiprocketCatalogSync");
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 const isMongoId = (str) => /^[a-f\d]{24}$/i.test(str);
@@ -606,6 +609,8 @@ const createProduct = async (req, res) => {
       await syncCollection(product.collection, product._id, "add");
     }
 
+    syncProductToShiprocket(product);
+
     return res.status(201).json({
       success: true,
       message: "Product created successfully.",
@@ -722,6 +727,8 @@ const updateProduct = async (req, res) => {
       ]);
     }
 
+    syncProductToShiprocket(product);
+
     return res.status(200).json({
       success: true,
       message: "Product updated successfully.",
@@ -754,6 +761,7 @@ const addVariant = async (req, res) => {
     await product.save();
 
     const added = product.variants[product.variants.length - 1];
+    syncProductToShiprocket(product);
 
     return res.status(201).json({
       success: true,
@@ -817,6 +825,7 @@ const updateVariant = async (req, res) => {
 
     Object.assign(variant, withImages);
     await product.save();
+    syncProductToShiprocket(product);
 
     return res.status(200).json({
       success: true,
@@ -852,6 +861,7 @@ const deleteVariant = async (req, res) => {
 
     variant.deleteOne();
     await product.save();
+    syncProductToShiprocket(product);
 
     return res.status(200).json({ success: true, message: "Variant deleted." });
   } catch (error) {
@@ -882,6 +892,7 @@ const setDefaultVariant = async (req, res) => {
     variant.isDefault = true;
 
     await product.save();
+    syncProductToShiprocket(product);
 
     return res.status(200).json({
       success: true,
@@ -906,6 +917,7 @@ const toggleProductStatus = async (req, res) => {
 
     product.isActive = !product.isActive;
     await product.save();
+    syncProductToShiprocket(product);
 
     return res.status(200).json({
       success: true,
@@ -925,6 +937,8 @@ const deleteProduct = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Product not found." });
     }
+
+    syncProductToShiprocket(product, { deleted: true });
 
     await Promise.allSettled(
       collectProductUrls(product).map(destroyCloudinaryAsset),

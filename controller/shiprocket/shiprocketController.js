@@ -84,7 +84,10 @@ function formatProductForShiprocket(p) {
           ? new Date(p.updatedAt).toISOString()
           : new Date().toISOString(),
         taxable: true,
-        grams: v.grams || (v.weight ? Math.round(v.weight * 1000) : 0),
+        // Never send 0 grams — fall back to the product weight, then 500g
+        grams:
+          v.grams ||
+          Math.round((v.weight || p.weight || 0.5) * 1000),
         weight: v.weight || p.weight || 0.5,
         weight_unit: v.weightUnit || v.weight_unit || "kg",
         image: {
@@ -309,6 +312,7 @@ const getShiprocketProductsByCollection = async (req, res) => {
 };
 
 module.exports = {
+  formatProductForShiprocket,
   getShiprocketProducts,
   getShiprocketProductById,
   getShiprocketCollections,
