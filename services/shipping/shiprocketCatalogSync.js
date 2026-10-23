@@ -62,4 +62,42 @@ function syncProductToShiprocket(productOrId, { deleted = false } = {}) {
   );
 }
 
-module.exports = { syncProductToShiprocket };
+let bulkSyncRunning = false;
+
+/**
+ * Pushes every product (or just `ids`) one at a time and resolves with a
+ * summary. Only one bulk run at a time.
+ */
+async function syncAllProductsToShiprocket(ids = []) {
+  if (bulkSyncRunning) throw new Error("A catalog sync is already running");
+  bulkSyncRunning = true;
+  const summary = { total: 0, synced: 0, failed: [] };
+  try {
+    const products = await Product.find(
+      ids.length ? { _id: { $in: ids } } : {},
+    ).lean();
+    summary.total = products.length;
+
+    for (const p of products) {
+      try {
+        await postProduct(formatProductForShiprocket(p));
+        summary.synced++;
+      } catch (err) {
+        summary.failed.push({
+          id: String(p._id),
+          name: p.name,
+          error: err.response?.data || err.message,
+        });
+      }
+      await new Promise((r) => setTimeout(r, 300)); // be gentle with the API
+    }
+    console.log(
+      `[Shiprocket Catalog Sync] Bulk done: ${summary.synced}/${summary.total} synced, ${summary.failed.length} failed`,
+    );
+    return summary;
+  } finally {
+    bulkSyncRunning = false;
+  }
+}
+
+module.exports = { syncProductToShiprocket, syncAllProductsToShiprocket };
