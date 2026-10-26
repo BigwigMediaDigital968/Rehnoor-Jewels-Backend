@@ -165,6 +165,59 @@ function handleOrderError(error, res) {
     .json({ success: false, message: "Internal server error." });
 }
 
+// ─── Admin list/stats filter ──────────────────────────────────────────────────
+// Shared by adminGetAllOrders and adminGetOrderStats so both see the same set.
+
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const PERIOD_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
+
+function buildAdminOrderFilter({
+  period,
+  status,
+  search,
+  paymentStatus,
+  paymentMethod,
+  source,
+  isPriority,
+  startDate,
+  endDate,
+}) {
+  const filter = {
+    isTrashed: { $ne: true },
+  };
+  if (status) filter.status = status;
+  if (paymentStatus) filter["payment.status"] = paymentStatus;
+  if (paymentMethod) filter["payment.method"] = paymentMethod;
+  if (source) filter.source = source;
+  if (isPriority) filter.isPriority = isPriority === "true";
+  if (startDate || endDate) {
+    filter.placedAt = {};
+    if (startDate) filter.placedAt.$gte = new Date(startDate);
+    if (endDate) filter.placedAt.$lte = new Date(endDate);
+  }
+  // Period window — keeps the later of the period start and startDate
+  const days = PERIOD_DAYS[period];
+  if (days) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    filter.placedAt = filter.placedAt || {};
+    if (!filter.placedAt.$gte || filter.placedAt.$gte < since) {
+      filter.placedAt.$gte = since;
+    }
+  }
+  if (search) {
+    const regex = new RegExp(escapeRegex(search), "i");
+    filter.$or = [
+      { orderNumber: regex },
+      { customerName: regex },
+      { customerEmail: regex },
+      { customerPhone: regex },
+      { "shipping.trackingNumber": regex },
+    ];
+  }
+  return filter;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -543,43 +596,9 @@ const customerCancelOrder = async (req, res) => {
 // GET /api/admin/orders
 const adminGetAllOrders = async (req, res) => {
   try {
-    const {
-      status,
-      search,
-      paymentStatus,
-      paymentMethod,
-      source,
-      isPriority,
-      startDate,
-      endDate,
-      page = 1,
-      limit = 20,
-      sort = "-placedAt",
-    } = req.query;
+    const { page = 1, limit = 20, sort = "-placedAt" } = req.query;
 
-    // const filter = {};
-    const filter = {
-      isTrashed: { $ne: true },
-    };
-    if (status) filter.status = status;
-    if (paymentStatus) filter["payment.status"] = paymentStatus;
-    if (paymentMethod) filter["payment.method"] = paymentMethod;
-    if (source) filter.source = source;
-    if (isPriority) filter.isPriority = isPriority === "true";
-    if (startDate || endDate) {
-      filter.placedAt = {};
-      if (startDate) filter.placedAt.$gte = new Date(startDate);
-      if (endDate) filter.placedAt.$lte = new Date(endDate);
-    }
-    if (search) {
-      filter.$or = [
-        { orderNumber: { $regex: search, $options: "i" } },
-        { customerName: { $regex: search, $options: "i" } },
-        { customerEmail: { $regex: search, $options: "i" } },
-        { customerPhone: { $regex: search, $options: "i" } },
-        { "shipping.trackingNumber": { $regex: search, $options: "i" } },
-      ];
-    }
+    const filter = buildAdminOrderFilter(req.query);
 
     const skip = (Number(page) - 1) * Number(limit);
     const [orders, total] = await Promise.all([
@@ -609,26 +628,38 @@ const adminGetAllOrders = async (req, res) => {
 // GET /api/admin/orders/stats
 const adminGetOrderStats = async (req, res) => {
   try {
-    const { period = "30d" } = req.query;
-    const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const { period = "all", status } = req.query;
 
+    // 1. Same filter as the order list (including the period window)
+    const baseMatch = buildAdminOrderFilter(req.query);
+
+    // Valid statuses for revenue calculation
+    const validRevenueStatuses = [
+      "confirmed",
+      "processing",
+      "ready_to_ship",
+      "shipped",
+      "out_for_delivery",
+      "delivered",
+    ];
+
+    const revenueMatch = { ...baseMatch };
+    if (!status) {
+      revenueMatch.status = { $in: validRevenueStatuses };
+    }
+
+
+    // 3. Execute queries concurrently
     const [statusBreakdown, revenueStats, periodStats] = await Promise.all([
-      Order.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
+      // Status breakdown honoring overall active filters
       Order.aggregate([
-        {
-          $match: {
-            status: {
-              $in: [
-                "delivered",
-                "confirmed",
-                "processing",
-                "shipped",
-                "out_for_delivery",
-              ],
-            },
-          },
-        },
+        { $match: baseMatch },
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+      ]),
+
+      // Total overall revenue within active filters
+      Order.aggregate([
+        { $match: revenueMatch },
         {
           $group: {
             _id: null,
@@ -637,8 +668,10 @@ const adminGetOrderStats = async (req, res) => {
           },
         },
       ]),
+
+      // Stats restricted to selected period & active filters
       Order.aggregate([
-        { $match: { placedAt: { $gte: since } } },
+        { $match: revenueMatch },
         {
           $group: {
             _id: null,
@@ -650,10 +683,12 @@ const adminGetOrderStats = async (req, res) => {
       ]),
     ]);
 
+    // Format status breakdown map
     const byStatus = {};
     statusBreakdown.forEach(({ _id, count }) => {
-      byStatus[_id] = count;
+      if (_id) byStatus[_id] = count;
     });
+
     const totalOrders = Object.values(byStatus).reduce((a, b) => a + b, 0);
 
     return res.status(200).json({
