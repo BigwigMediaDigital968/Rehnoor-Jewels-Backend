@@ -1,6 +1,7 @@
 const axios = require("axios");
 const Order = require("../../model/Order/orderModel");
 const { getShiprocketToken, SR_BASE } = require("../../config/shiprocket");
+const { markCodPaidOnDelivery } = require("../payment/codService");
 
 // Our order statuses that still follow the Shiprocket shipment. Delivered,
 // returned, refunded and cancelled orders are final and never overwritten.
@@ -106,6 +107,7 @@ function applyShiprocketStatus(order, { status, awb, courierName, at }) {
     if (mapped === "delivered") {
       order.deliveredAt = when;
       order.shipping.deliveredAt = when;
+      markCodPaidOnDelivery(order, when);
     }
     if (mapped === "returned") order.returnedAt = when;
     changed = true;

@@ -2,6 +2,7 @@ const axios = require("axios");
 const Order = require("../../model/Order/orderModel");
 const Product = require("../../model/products/productModel");
 const { createOrder } = require("../../services/order/orderService");
+const { markCodPaidOnDelivery } = require("../../services/payment/codService");
 const {
   applyCouponToOrder,
 } = require("../../controller/coupon/couponController");
@@ -51,6 +52,7 @@ function applyStatusChange(order, newStatus, note = "", changedBy = "admin") {
     delivered: () => {
       order.deliveredAt = now;
       order.shipping.deliveredAt = now;
+      markCodPaidOnDelivery(order, now);
     },
     cancelled: () => {
       order.cancelledAt = now;
@@ -461,8 +463,10 @@ const trackOrder = async (req, res) => {
             order.statusHistory = updatedHistory;
             if (liveStatus === "shipped" && !order.shippedAt)
               order.shippedAt = new Date();
-            if (liveStatus === "delivered" && !order.deliveredAt)
-              order.deliveredAt = new Date();
+            if (liveStatus === "delivered") {
+              if (!order.deliveredAt) order.deliveredAt = new Date();
+              markCodPaidOnDelivery(order, order.deliveredAt);
+            }
             if (latestData.courier_name)
               order.courierName = latestData.courier_name;
             if (latestData.edd)
