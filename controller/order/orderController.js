@@ -196,7 +196,12 @@ function buildAdminOrderFilter({
   if (startDate || endDate) {
     filter.placedAt = {};
     if (startDate) filter.placedAt.$gte = new Date(startDate);
-    if (endDate) filter.placedAt.$lte = new Date(endDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      // A date-only value (YYYY-MM-DD) means "through the end of that day"
+      if (/^\d{4}-\d{2}-\d{2}$/.test(endDate)) end.setUTCHours(23, 59, 59, 999);
+      filter.placedAt.$lte = end;
+    }
   }
   // Period window — keeps the later of the period start and startDate
   const days = PERIOD_DAYS[period];
@@ -654,7 +659,20 @@ const adminGetOrderStats = async (req, res) => {
 
 
     // 3. Execute queries concurrently
-    const [statusBreakdown, revenueStats, periodStats] = await Promise.all([
+    // Net revenue: money actually collected (paid / partially refunded), minus refunds
+    // (intersect with an active paymentStatus filter instead of overriding it)
+    const NET_PAYMENT_STATUSES = ["paid", "partially_refunded"];
+    const netMatch = {
+      ...revenueMatch,
+      "payment.status": req.query.paymentStatus
+        ? NET_PAYMENT_STATUSES.includes(req.query.paymentStatus)
+          ? req.query.paymentStatus
+          : { $in: [] }
+        : { $in: NET_PAYMENT_STATUSES },
+    };
+
+    const [statusBreakdown, revenueStats, periodStats, netStats] =
+      await Promise.all([
       // Status breakdown honoring overall active filters
       Order.aggregate([
         { $match: baseMatch },
@@ -685,6 +703,24 @@ const adminGetOrderStats = async (req, res) => {
           },
         },
       ]),
+
+      Order.aggregate([
+        { $match: netMatch },
+        {
+          $group: {
+            _id: null,
+            net: {
+              $sum: {
+                $subtract: [
+                  "$pricing.total",
+                  { $ifNull: ["$payment.refundAmount", 0] },
+                ],
+              },
+            },
+            paidOrders: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
 
     // Format status breakdown map
@@ -704,10 +740,19 @@ const adminGetOrderStats = async (req, res) => {
           total: revenueStats[0]?.totalRevenue || 0,
           paidOrders: revenueStats[0]?.totalOrders || 0,
         },
+        grossRevenue: {
+          total: revenueStats[0]?.totalRevenue || 0,
+          paidOrders: revenueStats[0]?.totalOrders || 0,
+        },
+        netRevenue: {
+          total: netStats[0]?.net || 0,
+          paidOrders: netStats[0]?.paidOrders || 0,
+        },
         period: {
           label: period,
           orders: periodStats[0]?.orders || 0,
           revenue: periodStats[0]?.revenue || 0,
+          netRevenue: netStats[0]?.net || 0,
           avgOrderValue: Math.round(periodStats[0]?.avgOrderValue || 0),
         },
       },
